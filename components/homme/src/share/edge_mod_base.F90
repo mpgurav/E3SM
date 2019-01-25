@@ -516,7 +516,10 @@ endif
 
 
     integer :: is,ie,in,iw
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
+#ifndef OPENACC_HOMME
     if (edge%nlyr_max < (kptr+vlyr) ) then
        print *,'edge%nlyr_max = ',edge%nlyr_max
        print *,'kptr+vlyr = ',kptr+vlyr
@@ -527,7 +530,7 @@ endif
        print *,'nlyr_tot = ',nlyr_tot
        call abortmp('edgeVpack: Buffer overflow: edge%nlyr_max too small for nlyr_tot')
     endif
-
+#endif
     is = nlyr_tot*desc%putmapP(south)
     ie = nlyr_tot*desc%putmapP(east)
     in = nlyr_tot*desc%putmapP(north)

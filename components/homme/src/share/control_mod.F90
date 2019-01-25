@@ -154,7 +154,9 @@ module control_mod
   integer, public, parameter :: neast = 8
   
   logical, public :: disable_diagnostics  = .FALSE.
-
+#ifdef OPENACC_HOMME  
+  !$acc declare create(theta_hydrostatic_mode, north, south, east, west, swest)
+#endif
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

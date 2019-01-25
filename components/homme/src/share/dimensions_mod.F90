@@ -42,7 +42,9 @@ module dimensions_mod
   integer, public :: nelemdmax   ! max number of elements on any MPI task
   integer, public :: nnodes,npart,nmpi_per_node
   integer, public :: GlobalUniqueCols
-
+#ifdef OPENACC_HOMME
+  !$acc declare create(np, nlev, nlevp, max_corner_elem)
+#endif  
   public :: set_mesh_dimensions
 
 contains

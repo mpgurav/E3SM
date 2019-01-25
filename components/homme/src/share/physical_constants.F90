@@ -74,4 +74,8 @@ module physical_constants
   real (kind=real_kind), public            :: rrearth      = rrearth0
 #endif
 
+#ifdef OPENACC_HOMME  
+  !$acc declare create(rrearth)
+#endif
+
 end module physical_constants

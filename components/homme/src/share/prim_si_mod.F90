@@ -95,7 +95,9 @@ contains
     use kinds,              only : real_kind
     use dimensions_mod,     only : nlev, np, nlevp
     implicit none
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
     real (kind=real_kind), intent(in) :: v(np,np,2,nlev)
     real (kind=real_kind), intent(in) :: eta_dot_dp_deta(np,np,nlevp)
     real (kind=real_kind), intent(in) :: dp(np,np,nlev)
@@ -144,7 +146,65 @@ contains
     v_vadv(:,:,2,k)   = facm*(v(:,:,2,k)- v(:,:,2,k-1))
     end subroutine preq_vertadv_v1
 
+  subroutine preq_vertadv_v1_openacc(elem,eta_dot_dp_deta,v_vadv,nets,nete,n0)
+      USE kinds, ONLY: real_kind 
+      USE dimensions_mod, ONLY: nlev, np, nlevp,nelemd        
+      USE element_mod, ONLY: element_t
+    implicit none
+!elem(ie)%state%v(:,:,:,:,n0),eta_dot_dpdn_ie(ie,:,:,:),elem(ie)%state%dp3d(:,:,:,n0),v_vadv_ie(ie,:,:,:,:)
+    type (element_t), intent(in) :: elem(nelemd)
+    integer             , intent(in) :: nets 
+    integer             , intent(in) :: nete  
+    integer             , intent(in) :: n0   
 
+    !real (kind=real_kind), intent(in) :: v(np,np,2,nlev)
+    real (kind=real_kind), intent(in) :: eta_dot_dp_deta(nelemd,np,np,nlevp)
+    !real (kind=real_kind), intent(in) :: dp(np,np,nlev)
+    real (kind=real_kind), intent(out) :: v_vadv(nelemd,np,np,2,nlev)
+    ! ========================
+    ! Local Variables
+    ! ========================
+
+
+    integer :: k,nf,ie
+    real (kind=real_kind) :: facp(np,np), facm(np,np)
+    ! ===========================================================
+    ! Compute vertical advection of T and v from eq. (3.b.1)
+    ! k = 1 case:
+    ! ===========================================================
+!$acc parallel loop gang vector private(k,nf,facp,facm) present(elem)    
+  do ie=nets,nete !nete
+    !
+    k=1
+    facp            = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k+1)/elem(ie)%state%dp3d(:,:,k,n0)
+    v_vadv(ie,:,:,1,k)   = facp(:,:)*(elem(ie)%state%v(:,:,1,k+1,n0)- elem(ie)%state%v(:,:,1,k,n0))
+    v_vadv(ie,:,:,2,k)   = facp(:,:)*(elem(ie)%state%v(:,:,2,k+1,n0)- elem(ie)%state%v(:,:,2,k,n0))
+    ! ===========================================================
+    ! vertical advection
+    ! 1 < k < nlev case:
+    ! ===========================================================
+    
+    !
+    do k=2,nlev-1
+       facp(:,:)   = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k+1)/elem(ie)%state%dp3d(:,:,k,n0)
+       facm(:,:)   = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k)/elem(ie)%state%dp3d(:,:,k,n0)
+       v_vadv(ie,:,:,1,k)=facp*(elem(ie)%state%v(:,:,1,k+1,n0)- elem(ie)%state%v(:,:,1,k,n0)) + & 
+                       facm*(elem(ie)%state%v(:,:,1,k,n0)- elem(ie)%state%v(:,:,1,k-1,n0))
+       v_vadv(ie,:,:,2,k)=facp*(elem(ie)%state%v(:,:,2,k+1,n0)- elem(ie)%state%v(:,:,2,k,n0)) + &
+                       facm*(elem(ie)%state%v(:,:,2,k,n0)- elem(ie)%state%v(:,:,2,k-1,n0))
+    end do
+    ! ===========================================================
+    ! vertical advection
+    ! k = nlev case:
+    ! ===========================================================
+    
+    !
+    k=nlev
+    facm            = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k)/elem(ie)%state%dp3d(:,:,k,n0)
+    v_vadv(ie,:,:,1,k)   = facm*(elem(ie)%state%v(:,:,1,k,n0)- elem(ie)%state%v(:,:,1,k-1,n0))
+    v_vadv(ie,:,:,2,k)   = facm*(elem(ie)%state%v(:,:,2,k,n0)- elem(ie)%state%v(:,:,2,k-1,n0))
+  end do    
+    end subroutine preq_vertadv_v1_openacc 
 
   subroutine preq_vertadv_v(v,T,nfields,eta_dot_dp_deta, dp,v_vadv,T_vadv)
     use kinds,              only : real_kind

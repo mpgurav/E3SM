@@ -73,6 +73,11 @@ private
   public  :: vorticity_sphere
   public  :: vorticity_sphere_diag
   public  :: divergence_sphere
+ 
+  PUBLIC gradient_sphere_openacc 
+  PUBLIC divergence_sphere_openacc
+  PUBLIC vorticity_sphere_openacc
+
   public  :: curl_sphere
   public  :: curl_sphere_wk_testcov
 ! public  :: curl_sphere_wk_testcontra  ! not coded
@@ -422,7 +427,9 @@ contains
     type (derivative_t), intent(in) :: deriv
     real(kind=real_kind), intent(in), dimension(np,np,2,2) :: Dinv
     real(kind=real_kind), intent(in) :: s(np,np)
-
+#ifdef OPENACC_HOMME
+    !$acc routine seq 
+#endif
     real(kind=real_kind) :: ds(np,np,2)
 
     integer i
@@ -454,6 +461,56 @@ contains
     enddo
 
     end function gradient_sphere
+  subroutine gradient_sphere_openacc(s,deriv,elem,nets,nete,nlev,ds)  
+    real(kind=real_kind), intent(in) :: s(nelemd,np,np,nlev)
+    type (derivative_t), intent(in) :: deriv
+    type (element_t), intent(in) :: elem(nelemd)
+    integer             , intent(in) :: nets 
+    integer             , intent(in) :: nete    
+    integer             , intent(in) :: nlev
+    REAL(KIND=real_kind), intent(out):: ds(nelemd,np,np,2,nlev) 
+
+    !real(kind=real_kind) :: ds(np,np,2)
+
+    integer i
+    integer j
+    integer l
+    integer ie,k
+
+    real(kind=real_kind) ::  dsdx00, dsdy00
+    real(kind=real_kind) ::  v1(np,np),v2(np,np)
+#ifdef OPENACC_HOMME    
+!$acc parallel loop gang vector collapse(2) private(i,j,k,dsdx00,dsdy00,v1,v2) present(elem)    
+#endif
+  do ie=nets,nete
+    do k=1, nlev
+      v1 = 0
+      v2 = 0
+      do j=1,np
+         do l=1,np
+            dsdx00=0.0d0
+            dsdy00=0.0d0
+            do i=1,np
+               dsdx00 = dsdx00 + deriv%Dvv(i,l  )*s(ie,i,j,k)
+               dsdy00 = dsdy00 + deriv%Dvv(i,l  )*s(ie,j,i,k)
+            end do
+            v1(l  ,j  ) = dsdx00*rrearth
+            v2(j  ,l  ) = dsdy00*rrearth
+         end do
+      end do
+      ! convert covarient to latlon
+      do j=1,np
+         do i=1,np
+            ds(ie,i,j,1,k)=elem(ie)%Dinv(i,j,1,1)*v1(i,j) + elem(ie)%Dinv(i,j,2,1)*v2(i,j)
+            ds(ie,i,j,2,k)=elem(ie)%Dinv(i,j,1,2)*v1(i,j) + elem(ie)%Dinv(i,j,2,2)*v2(i,j)
+         enddo
+      enddo
+    end do
+  end do 
+#ifdef OPENACC_HOMME    
+!$acc end parallel loop   
+#endif  
+    end subroutine gradient_sphere_openacc
 
 
   function curl_sphere_wk_testcov(s,deriv,elem) result(ds)
@@ -1015,7 +1072,9 @@ contains
 !   input:  v = velocity in lat-lon coordinates
 !   ouput:  spherical vorticity of v
 !
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
     type (derivative_t), intent(in) :: deriv
     type (element_t), intent(in) :: elem
     real(kind=real_kind), intent(in) :: v(np,np,2)
@@ -1062,6 +1121,70 @@ contains
     end do
 
   end function vorticity_sphere
+
+
+
+
+  subroutine vorticity_sphere_openacc(n0,deriv,elem,nets,nete,nlev,vort_ie) 
+      
+    integer             , intent(in) :: n0
+    type (derivative_t), intent(in) :: deriv
+    type (element_t), intent(in) :: elem(nelemd)
+    integer             , intent(in) :: nets 
+    integer             , intent(in) :: nete    
+    integer             , intent(in) :: nlev
+    real(kind=real_kind), intent(out) :: vort_ie(nelemd,np,np,nlev)
+
+    real(kind=real_kind) :: vort(np,np)
+
+    integer i
+    integer j
+    integer l
+    integer k,ie
+    
+    real(kind=real_kind) ::  dvdx00,dudy00
+    real(kind=real_kind) ::  vco(np,np,2)
+    real(kind=real_kind) ::  vtemp(np,np)
+    ! convert to covariant form
+#ifdef OPENACC_HOMME
+  !$acc parallel loop gang vector collapse(2) private(i,j,k,dvdx00,dudy00,vco,vtemp,vort) present(elem) 
+#endif    
+  do ie=nets,nete      	
+     do k=1,nlev
+      do j=1,np
+         do i=1,np
+            vco(i,j,1)=(elem(ie)%D(i,j,1,1)*elem(ie)%state%v(i,j,1,k,n0) + elem(ie)%D(i,j,2,1)*elem(ie)%state%v(i,j,2,k,n0))
+            vco(i,j,2)=(elem(ie)%D(i,j,1,2)*elem(ie)%state%v(i,j,1,k,n0) + elem(ie)%D(i,j,2,2)*elem(ie)%state%v(i,j,2,k,n0))
+         enddo
+      enddo
+
+      do j=1,np
+         do l=1,np
+            dudy00=0.0d0
+            dvdx00=0.0d0
+
+            do i=1,np
+               dvdx00 = dvdx00 + deriv%Dvv(i,l  )*vco(i,j  ,2)
+               dudy00 = dudy00 + deriv%Dvv(i,l  )*vco(j  ,i,1)
+            enddo
+ 
+            vort(l  ,j  ) = dvdx00
+            vtemp(j  ,l  ) = dudy00
+         enddo
+      enddo
+
+      do j=1,np
+         do i=1,np
+            vort_ie(ie,i,j,k)=(vort(i,j)-vtemp(i,j))*(elem(ie)%rmetdet(i,j)*rrearth)
+         end do
+      end do
+     end do
+   end do
+#ifdef OPENACC_HOMME
+  !$acc end parallel loop
+#endif   
+  end subroutine vorticity_sphere_openacc
+
 
   function vorticity_sphere_diag(v,deriv,elem) result(vort)
   !
@@ -1123,7 +1246,9 @@ contains
 !   input:  v = velocity in lat-lon coordinates
 !   ouput:  div(v)  spherical divergence of v
 !
-
+#ifdef OPENACC_HOMME
+    !$acc routine seq 
+#endif
 
     real(kind=real_kind), intent(in) :: v(np,np,2)  ! in lat-lon coordinates
     type (derivative_t), intent(in) :: deriv
@@ -1168,6 +1293,63 @@ contains
     
   end function divergence_sphere
 
+
+  
+  subroutine divergence_sphere_openacc(v,deriv,elem,nets,nete,nlev,divdp) 
+
+    real(kind=real_kind), intent(in) :: v(nelemd,np,np,2,nlev)  ! in lat-lon coordinates
+    type (derivative_t), intent(in) :: deriv
+    type (element_t), intent(in) :: elem(nelemd)
+    integer             , intent(in) :: nets 
+    integer             , intent(in) :: nete    
+    integer             , intent(in) :: nlev
+    real(kind=real_kind), intent(out) ::  divdp(nelemd,np,np,nlev) 
+    real(kind=real_kind) :: div(np,np)
+    ! Local
+
+
+    integer i
+    integer j
+    integer l
+    integer k,ie
+
+    real(kind=real_kind) ::  dudx00
+    real(kind=real_kind) ::  dvdy00
+    real(kind=real_kind) ::  gv(np,np,2),vvtemp(np,np)
+    ! convert to contra variant form and multiply by g
+#ifdef OPENACC_HOMME
+  !$acc parallel loop gang vector collapse(2) private(i,j,k,dudx00,dvdy00,gv,vvtemp,div) present(elem)
+#endif    
+  do ie=nets,nete      	
+     do k=1,nlev
+       do j=1,np
+         do i=1,np
+            gv(i,j,1)=elem(ie)%metdet(i,j)*(elem(ie)%Dinv(i,j,1,1)*v(ie,i,j,1,k) + elem(ie)%Dinv(i,j,1,2)*v(ie,i,j,2,k))
+            gv(i,j,2)=elem(ie)%metdet(i,j)*(elem(ie)%Dinv(i,j,2,1)*v(ie,i,j,1,k) + elem(ie)%Dinv(i,j,2,2)*v(ie,i,j,2,k))
+         enddo
+      enddo
+      ! compute d/dx and d/dy         
+
+      do j=1,np
+         do l=1,np
+            dudx00=0.0d0
+            dvdy00=0.0d0
+
+            do i=1,np
+               dudx00 = dudx00 + deriv%Dvv(i,l  )*gv(i,j  ,1)
+               dvdy00 = dvdy00 + deriv%Dvv(i,l  )*gv(j  ,i,2)
+            end do
+            div(l  ,j  ) = dudx00
+            vvtemp(j  ,l  ) = dvdy00
+         end do
+      end do      
+      divdp(ie,:,:,k)=(div(:,:)+vvtemp(:,:))*(elem(ie)%rmetdet(:,:)*rrearth)
+    end do
+  end do 
+#ifdef OPENACC_HOMME
+  !$acc end parallel loop
+#endif  
+  end subroutine divergence_sphere_openacc 
 
 !DIR$ ATTRIBUTES FORCEINLINE :: laplace_sphere_wk
   function laplace_sphere_wk(s,deriv,elem,var_coef) result(laplace)
