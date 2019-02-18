@@ -97,7 +97,7 @@ contains
           if (nu_scale_top(k)>1) write(iulog,*) "  nu_scale_top ",k,nu_scale_top(k)
        end if
     end do
-    !$acc enter data create(elem)
+    !$acc enter data create(elem,hvcoord,deriv)
   end subroutine 
 
 

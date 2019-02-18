@@ -151,7 +151,6 @@ contains
       USE dimensions_mod, ONLY: nlev, np, nlevp,nelemd        
       USE element_mod, ONLY: element_t
     implicit none
-!elem(ie)%state%v(:,:,:,:,n0),eta_dot_dpdn_ie(ie,:,:,:),elem(ie)%state%dp3d(:,:,:,n0),v_vadv_ie(ie,:,:,:,:)
     type (element_t), intent(in) :: elem(nelemd)
     integer             , intent(in) :: nets 
     integer             , intent(in) :: nete  
@@ -172,7 +171,10 @@ contains
     ! Compute vertical advection of T and v from eq. (3.b.1)
     ! k = 1 case:
     ! ===========================================================
-!$acc parallel loop gang vector private(k,nf,facp,facm) present(elem)    
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(k,nf,facp,facm) firstprivate(n0,nlev) present(elem,eta_dot_dp_deta,v_vadv)   
+#endif 
   do ie=nets,nete !nete
     !
     k=1
@@ -203,7 +205,10 @@ contains
     facm            = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k)/elem(ie)%state%dp3d(:,:,k,n0)
     v_vadv(ie,:,:,1,k)   = facm*(elem(ie)%state%v(:,:,1,k,n0)- elem(ie)%state%v(:,:,1,k-1,n0))
     v_vadv(ie,:,:,2,k)   = facm*(elem(ie)%state%v(:,:,2,k,n0)- elem(ie)%state%v(:,:,2,k-1,n0))
-  end do    
+  end do  
+#ifdef OPENACC_HOMME
+!$acc end parallel loop 
+#endif 
     end subroutine preq_vertadv_v1_openacc 
 
   subroutine preq_vertadv_v(v,T,nfields,eta_dot_dp_deta, dp,v_vadv,T_vadv)

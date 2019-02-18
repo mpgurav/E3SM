@@ -980,9 +980,9 @@ contains
   real (kind=real_kind) :: eta_ave_w,scale1,scale2,scale3  ! weighting for eta_dot_dpdn mean flux, scale of unm1
 
   ! local
-  real (kind=real_kind), pointer, dimension(:,:,:) :: phi_i
-  real (kind=real_kind), pointer, dimension(:,:,:) :: dp3d
-  real (kind=real_kind), pointer, dimension(:,:,:) :: vtheta_dp
+  !real (kind=real_kind), pointer, dimension(:,:,:) :: phi_i
+  !real (kind=real_kind), pointer, dimension(:,:,:) :: dp3d
+  !real (kind=real_kind), pointer, dimension(:,:,:) :: vtheta_dp
 #if 0   
   real (kind=real_kind) :: vtheta(np,np,nlev)
   real (kind=real_kind) :: vtheta_i(np,np,nlevp)
@@ -1051,7 +1051,7 @@ contains
   real (kind=real_kind) :: KE_ie(nelemd,np,np,nlev)             ! Kinetic energy
   real (kind=real_kind) :: gradexner_ie(nelemd,np,np,2,nlev)    ! grad(p^kappa)
   real (kind=real_kind) :: gradphinh_i_ie(nelemd,np,np,2,nlevp) ! gradphi at interfaces
-  real (kind=real_kind) :: mgrad_ie(nelemd,np,np,2,nlev)        ! gradphi metric term at cell centers
+  !real (kind=real_kind) :: mgrad_ie(nelemd,np,np,2,nlev)        ! gradphi metric term at cell centers
   real (kind=real_kind) :: gradKE_ie(nelemd,np,np,2,nlev)       ! grad(0.5 u^T u )
   real (kind=real_kind) :: wvor_ie(nelemd,np,np,2,nlev)         ! w vorticity term
 
@@ -1089,7 +1089,7 @@ contains
   real (kind=real_kind) ::  v1,v2,w,d_eta_dot_dpdn_dn
   integer :: i,j,k,kptr,ie, nlyr_tot
 
-    real(kind=real_kind) ::  dsdx00, dsdy00, dsdx001, dsdy001, dsdx002, dsdy002
+    real(kind=real_kind) ::  dsdx00, dsdy00, dsdx001, dsdy001, dsdx002, dsdy002,mgrad_ie_tmp1,mgrad_ie_tmp2
     real(kind=real_kind) ::  v11(np,np),v21(np,np),v12(np,np),v22(np,np)
     INTEGER :: l
     real :: start, finish
@@ -1108,10 +1108,17 @@ contains
 #ifdef OPENACC_HOMME
 call cpu_time(start)
 !$acc update device(elem) 
+!$acc enter data create(vtheta_ie, vtheta_i_ie, omega_i_ie, omega_ie, vort_ie, divdp_ie, phi_ie, pnh_ie)
+!$acc enter data create(dp3d_i_ie, exner_ie, dpnh_dp_i_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
+!$acc enter data create(gradphinh_i_ie, gradKE_ie, wvor_ie, gradw_i_ie, v_gradw_i_ie)
+!$acc enter data create(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
+!$acc enter data create(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
+!$acc enter data create(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie)
+!$acc update device(hvcoord,deriv)
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem)
+!$acc parallel loop gang vector present(elem,vtheta_ie)
 #endif
   do ie=nets,nete !nete
      !dp3d  => elem(ie)%state%dp3d(:,:,:,n0)
@@ -1128,7 +1135,7 @@ call cpu_time(start)
   call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,n0,nets,nete,nlev)
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!$acc parallel loop gang vector private(k) present(elem,dp3d_i_ie)
 #endif    
   do ie=nets,nete !nete
      dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,n0) 
@@ -1142,7 +1149,7 @@ call cpu_time(start)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!$acc parallel loop gang vector private(k) present(elem,v_i_ie,dp3d_i_ie)
 #endif    
   do ie=nets,nete !nete
      ! special averaging for velocity for energy conservation
@@ -1160,7 +1167,7 @@ call cpu_time(start)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!$acc parallel loop gang vector private(k) present(elem,exner_ie,pnh_ie)
 #endif    
   do ie=nets,nete !nete     
      if (theta_hydrostatic_mode) then
@@ -1178,7 +1185,7 @@ call cpu_time(start)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem)
+!$acc parallel loop gang vector collapse(2) present(elem,phi_ie,vtemp_ie)
 #endif    
   do ie=nets,nete !nete     	
      do k=1,nlev
@@ -1203,7 +1210,7 @@ call cpu_time(start)
 
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!$acc parallel loop gang vector private(k) present(elem,pi_i_ie,omega_i_ie,divdp_ie,pi_ie,hvcoord)
 #endif     
   do ie=nets,nete !nete     
      pi_i_ie(ie,:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
@@ -1220,7 +1227,9 @@ call cpu_time(start)
 !$acc end parallel loop
 #endif
 
-!$acc parallel loop gang vector collapse(2) private(i,j,dsdx00,dsdy00,v11,v21) present(elem)
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) private(i,j,dsdx00,dsdy00,v11,v21) present(elem,pi_ie,vtemp_ie,deriv)
+#endif
   do ie=nets,nete !nete
      do k=1,nlev
         !vtemp_ie(ie,:,:,:,k) = gradient_sphere( pi_ie(ie,:,:,k), deriv, elem(ie)%Dinv);
@@ -1246,10 +1255,12 @@ call cpu_time(start)
        enddo
      enddo        
   end do
+#ifdef OPENACC_HOMME
 !$acc end parallel loop
+#endif
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem)
+!$acc parallel loop gang vector collapse(2) present(elem,vgrad_p_ie,vtemp_ie,omega_ie,omega_i_ie)
 #endif     
   do ie=nets,nete !nete
      do k=1,nlev
@@ -1262,11 +1273,11 @@ call cpu_time(start)
   end do 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-
 #endif   
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k,sdot_sum)  present(elem)
+!$acc parallel loop gang vector private(k,sdot_sum)  present(elem,eta_dot_dpdn_ie,w_vadv_i_ie,phi_vadv_i_ie,theta_vadv_ie,v_vadv_ie, &
+    !$acc divdp_ie,vtheta_i_ie,temp_ie,phi_ie,dp3d_i_ie,exner_ie,dpnh_dp_i_ie,hvcoord)
 #endif   
   do ie=nets,nete !nete
      ! ==================================================
@@ -1349,6 +1360,7 @@ call cpu_time(start)
   end do 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
+!!$acc update self(elem)
 #endif   
   
   
@@ -1370,7 +1382,8 @@ call cpu_time(start)
   
     
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!!$acc update device(elem)
+!$acc parallel loop gang vector private(k) present(elem,eta_dot_dpdn_ie,omega_ie)
 #endif     
   do ie=nets,nete !nete
 
@@ -1396,7 +1409,10 @@ call cpu_time(start)
 !$acc end parallel loop
 #endif      
 
-!$acc parallel loop gang vector collapse(2) private(i,j,dsdx001,dsdy001,v11,v21,dsdx002,dsdy002,v12,v22) present(elem)
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) private(i,j,dsdx001,dsdy001,v11,v21,dsdx002,dsdy002,v12,v22) present(elem,gradphinh_i_ie,gradw_i_ie,deriv)
+#endif 
   do ie=nets,nete !nete
      do k=1,nlevp !one extra iteration for the calculations required afterwards
         !gradphinh_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%phinh_i(:,:,k,n0),deriv,elem(ie)%Dinv)   
@@ -1433,12 +1449,13 @@ call cpu_time(start)
        enddo
      enddo        
   end do
+
 #ifdef OPENACC_HOMME
-!$acc end parallel loop
+!$acc end parallel loop     
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem)
+!$acc parallel loop gang vector collapse(2) present(elem,v_gradw_i_ie,gradw_i_ie,v_i_ie,w_tens_ie,w_vadv_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
 #endif     
   do ie=nets,nete !nete      
      do k=1,nlev        
@@ -1458,7 +1475,7 @@ call cpu_time(start)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!$acc parallel loop gang vector private(k) present(elem,v_gradw_i_ie,v_i_ie,gradw_i_ie,w_tens_ie,w_vadv_i_ie,v_gradw_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
 #endif     
   do ie=nets,nete !nete
      ! k =nlevp case, all terms in the imex methods are treated explicitly at the boundary
@@ -1490,7 +1507,7 @@ call cpu_time(start)
      ! ================================================   
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) !present(elem)
+!$acc parallel loop gang vector collapse(2) present(elem,v_theta_ie,v_theta_ie,KE_ie,temp_ie)
 #endif        
   do ie=nets,nete !nete    
      do k=1,nlev
@@ -1510,11 +1527,9 @@ call cpu_time(start)
     call gradient_sphere_openacc(temp_ie,deriv,elem,nets,nete,nlev,wvor_ie)
     call gradient_sphere_openacc(KE_ie,deriv,elem,nets,nete,nlev,gradKE_ie)
     call gradient_sphere_openacc(exner_ie,deriv,elem,nets,nete,nlev,gradexner_ie)
-   
-    
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2)private(i,j,v1,v2) present(elem)
+!$acc parallel loop gang vector collapse(2) present(elem,theta_tens_ie,theta_vadv_ie,div_v_theta_ie,wvor_ie,gradw_i_ie)
 #endif     
   do ie=nets,nete !nete            
      do k=1,nlev
@@ -1527,29 +1542,45 @@ call cpu_time(start)
              elem(ie)%state%w_i(:,:,k+1,n0)*gradw_i_ie(ie,:,:,1,k+1))/2
         wvor_ie(ie,:,:,2,k) = wvor_ie(ie,:,:,2,k) - (elem(ie)%state%w_i(:,:,k,n0)*gradw_i_ie(ie,:,:,2,k) +&
              elem(ie)%state%w_i(:,:,k+1,n0)*gradw_i_ie(ie,:,:,2,k+1))/2
+     end do 
+  end do             
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(4)private(v1,v2,mgrad_ie_tmp1,mgrad_ie_tmp2) present(elem,dpnh_dp_i_ie,gradphinh_i_ie,vtens1_ie,v_vadv_ie,vort_ie,gradKE_ie,vtheta_ie,gradexner_ie,wvor_ie,vtens2_ie)
+#endif
+  do ie=nets,nete !nete            
+     do k=1,nlev 
         ! special averaging of dpnh/dpi grad(phi) for E conservation
-        mgrad_ie(ie,:,:,1,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,1,k)+ &
-              dpnh_dp_i_ie(ie,:,:,k+1)*gradphinh_i_ie(ie,:,:,1,k+1))/2
-        mgrad_ie(ie,:,:,2,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,2,k)+ &
-              dpnh_dp_i_ie(ie,:,:,k+1)*gradphinh_i_ie(ie,:,:,2,k+1))/2
+        !mgrad_ie(ie,:,:,1,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,1,k)+ &
+        !      dpnh_dp_i_ie(ie,:,:,k+1)*gradphinh_i_ie(ie,:,:,1,k+1))/2
+        !mgrad_ie(ie,:,:,2,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,2,k)+ &
+        !      dpnh_dp_i_ie(ie,:,:,k+1)*gradphinh_i_ie(ie,:,:,2,k+1))/2
+
 
 	!!$acc loop collapse(2) vector
         do j=1,np
            do i=1,np
+              mgrad_ie_tmp1 = (dpnh_dp_i_ie(ie,i,j,k)*gradphinh_i_ie(ie,i,j,1,k)+ &
+                    dpnh_dp_i_ie(ie,i,j,k+1)*gradphinh_i_ie(ie,i,j,1,k+1))/2
+              mgrad_ie_tmp2 = (dpnh_dp_i_ie(ie,i,j,k)*gradphinh_i_ie(ie,i,j,2,k)+ &
+                    dpnh_dp_i_ie(ie,i,j,k+1)*gradphinh_i_ie(ie,i,j,2,k+1))/2
+
               v1     = elem(ie)%state%v(i,j,1,k,n0)
               v2     = elem(ie)%state%v(i,j,2,k,n0)
 
               vtens1_ie(ie,i,j,k) = (-v_vadv_ie(ie,i,j,1,k) &
                    + v2*(elem(ie)%fcor(i,j) + vort_ie(ie,i,j,k))        &
-                   - gradKE_ie(ie,i,j,1,k) - mgrad_ie(ie,i,j,1,k) &
+                   - gradKE_ie(ie,i,j,1,k) - mgrad_ie_tmp1 &
                   -Cp*vtheta_ie(ie,i,j,k)*gradexner_ie(ie,i,j,1,k)&
                   -wvor_ie(ie,i,j,1,k) )*scale1
 
 
               vtens2_ie(ie,i,j,k) = (-v_vadv_ie(ie,i,j,2,k) &
                    - v1*(elem(ie)%fcor(i,j) + vort_ie(ie,i,j,k)) &
-                   - gradKE_ie(ie,i,j,2,k) - mgrad_ie(ie,i,j,2,k) &
+                   - gradKE_ie(ie,i,j,2,k) - mgrad_ie_tmp2 &
                   -Cp*vtheta_ie(ie,i,j,k)*gradexner_ie(ie,i,j,2,k) &
                   -wvor_ie(ie,i,j,2,k) )*scale1
            end do
@@ -1558,7 +1589,11 @@ call cpu_time(start)
   end do 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-#endif       
+#endif   
+    
+  
+    
+
      
      ! =========================================================
      ! diagnostics. not performance critical, dont thread
@@ -1597,7 +1632,9 @@ call cpu_time(start)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(3) private(k,d_eta_dot_dpdn_dn) present(elem)
+!$acc parallel loop gang vector collapse(3) private(k,d_eta_dot_dpdn_dn) present(elem,eta_dot_dpdn_ie,gradKE_ie, &
+    !$acc KE_ie,divdp_ie,v_gradw_i_ie,wvor_ie,v_vadv_ie,w_vadv_i_ie,exner_ie,theta_vadv_ie,dpnh_dp_i_ie,phi_ie, &
+    !$acc phi_vadv_i_ie,gradexner_ie,exner_ie,div_v_theta_ie,gradphinh_i_ie)
 #endif     
      do ie=nets,nete !nete        
         do j=1,np
@@ -1694,7 +1731,7 @@ call cpu_time(start)
 #endif 
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem)
+!$acc parallel loop gang vector private(k) present(elem,dpnh_dp_i_ie,dp3d_i_ie,v_gradphinh_i_ie)
 #endif     
   do ie=nets,nete !nete
       ! these terms are better easier to compute by summing interfaces
@@ -1717,15 +1754,13 @@ call cpu_time(start)
     end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc update self(elem)
 #endif   
              
    endif 
-  
-  
 #ifdef OPENACC_HOMME
-!!$acc parallel loop gang vector private(k) !present(elem)
-#endif     
+!$acc parallel loop gang vector private(k) present(elem,vtens1_ie,vtens2_ie,w_tens_ie,theta_tens_ie,phi_tens_ie,divdp_ie,eta_dot_dpdn_ie)
+#endif  
+     
   do ie=nets,nete !nete
      do k=1,nlev
         elem(ie)%state%v(:,:,1,k,np1) = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%v(:,:,1,k,nm1) &
@@ -1745,12 +1780,12 @@ call cpu_time(start)
      enddo
   end do 
 #ifdef OPENACC_HOMME
-!!$acc end parallel loop
+!$acc end parallel loop
 #endif   
     
   
 #ifdef OPENACC_HOMME
-!!$acc parallel loop gang vector private(k,kptr) !present(elem)
+!$acc parallel loop gang vector private(k,kptr) present(elem,w_tens_ie)
 #endif     
   do ie=nets,nete !nete      
      k=nlevp
@@ -1773,7 +1808,16 @@ call cpu_time(start)
 
    end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
-!!$acc end parallel loop
+!$acc end parallel loop
+!$acc update self(elem)
+
+!$acc exit data delete(vtheta_ie, vtheta_i_ie, omega_i_ie, omega_ie, vort_ie, divdp_ie, phi_ie, pnh_ie)
+!$acc exit data delete(dp3d_i_ie, exner_ie, dpnh_dp_i_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
+!$acc exit data delete(gradphinh_i_ie, gradKE_ie, wvor_ie, gradw_i_ie, v_gradw_i_ie)
+!$acc exit data delete(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
+!$acc exit data delete(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
+!$acc exit data delete(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie)
+
 
 call cpu_time(finish)
   print '("GPU exe Time = ",f6.3," seconds.")',finish-start

@@ -201,8 +201,9 @@ implicit none
   real (kind=real_kind) :: pi_i(np,np,nlevp) 
   integer :: i,j,k,k2,ie
   ! hydrostatic pressure
-
-!$acc parallel loop gang vector private(i,j,k,k2,p_over_exner,pi,exner_i,pnh_i,dp3d_i,pi_i) present(elem)   
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector firstprivate(n0,nlev,nlevp) private(i,j,k,k2,p_over_exner,pi,exner_i,pnh_i,dp3d_i,pi_i) present(elem,pnh,exner,dpnh_dp_i,hvcoord)   
+#endif
   do ie=nets,nete   
     pi_i(:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
     do k=1,nlev
@@ -267,8 +268,10 @@ implicit none
      !   pnh_i_out=pnh_i    
      !endif
   endif ! hydrostatic/nonhydrostatic version
-  end do     
+  end do
+#ifdef OPENACC_HOMME
 !$acc end parallel loop
+#endif     
   
   end subroutine get_pnh_and_exner_openacc
 

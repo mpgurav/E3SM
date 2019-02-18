@@ -480,7 +480,7 @@ contains
     real(kind=real_kind) ::  dsdx00, dsdy00
     real(kind=real_kind) ::  v1(np,np),v2(np,np)
 #ifdef OPENACC_HOMME    
-!$acc parallel loop gang vector collapse(2) private(i,j,k,dsdx00,dsdy00,v1,v2) present(elem)    
+!$acc parallel loop gang vector collapse(2) private(i,j,k,dsdx00,dsdy00,v1,v2) present(elem,s,ds,deriv)    
 #endif
   do ie=nets,nete
     do k=1, nlev
@@ -1147,7 +1147,7 @@ contains
     real(kind=real_kind) ::  vtemp(np,np)
     ! convert to covariant form
 #ifdef OPENACC_HOMME
-  !$acc parallel loop gang vector collapse(2) private(i,j,k,dvdx00,dudy00,vco,vtemp,vort) present(elem) 
+  !$acc parallel loop gang vector collapse(2) firstprivate(n0) private(i,j,k,dvdx00,dudy00,vco,vtemp,vort) present(elem,vort_ie,deriv) 
 #endif    
   do ie=nets,nete      	
      do k=1,nlev
@@ -1318,7 +1318,7 @@ contains
     real(kind=real_kind) ::  gv(np,np,2),vvtemp(np,np)
     ! convert to contra variant form and multiply by g
 #ifdef OPENACC_HOMME
-  !$acc parallel loop gang vector collapse(2) private(i,j,k,dudx00,dvdy00,gv,vvtemp,div) present(elem)
+  !$acc parallel loop gang vector collapse(2) private(i,j,k,dudx00,dvdy00,gv,vvtemp,div) present(elem,v,divdp,deriv)
 #endif    
   do ie=nets,nete      	
      do k=1,nlev
