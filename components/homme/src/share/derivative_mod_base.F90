@@ -91,7 +91,9 @@ private
   public  :: element_boundary_integral
   public  :: edge_flux_u_cg
   public  :: limiter_optim_iter_full
-  public  :: limiter_clip_and_sum
+  PUBLIC limiter_optim_iter_full_openacc 
+  PUBLIC limiter_clip_and_sum 
+  PUBLIC limiter_clip_and_sum_openacc 
 
 contains
 
@@ -1961,7 +1963,9 @@ contains
     !
     use kinds         , only : real_kind
     use dimensions_mod, only : np, np, nlev
-
+#ifdef OPENACC_HOMME
+!$acc routine seq 
+#endif
     real (kind=real_kind), dimension(nlev), intent(inout)   :: minp, maxp
     real (kind=real_kind), dimension(np*np,nlev), intent(inout)   :: ptens
     real (kind=real_kind), dimension(np*np,nlev), intent(in), optional  :: dpmass
@@ -2046,6 +2050,131 @@ contains
 
   end subroutine limiter_optim_iter_full
 
+
+  
+    subroutine limiter_optim_iter_full_openacc(ptens,elem,minp,maxp,dpmass,q,nets,nete)
+    !The idea here is the following: We need to find a grid field which is closest
+    !to the initial field (in terms of weighted sum), but satisfies the min/max constraints.
+    !So, first we find values which do not satisfy constraints and bring these values
+    !to a closest constraint. This way we introduce some mass change (addmass),
+    !so, we redistribute addmass in the way that l2 error is smallest.
+    !This redistribution might violate constraints thus, we do a few iterations.
+    ! O. Guba ~2012                    Documented in Guba, Taylor & St-Cyr, JCP 2014
+    ! I. Demeshko & M. Taylor 7/2015:  Removed indirect addressing.  
+    ! N. Lopez & M. Taylor 8/2015:     Mass redistributon tweak which is better at 
+    !                                  linear coorelation preservation
+    ! 
+    !
+    !
+      USE kinds, ONLY: real_kind 
+      USE dimensions_mod, ONLY: np, np, nlev, qsize, nelemd 
+
+
+    integer             , intent(in) :: nets 
+    integer             , intent(in) :: nete
+    integer             , intent(in) :: q
+    real (kind=real_kind), dimension(nlev,qsize,nelemd), intent(inout)   :: minp, maxp
+    real (kind=real_kind), dimension(nelemd,np*np,nlev), intent(inout)   :: ptens
+    real (kind=real_kind), dimension(nelemd,np*np,nlev), intent(in), optional  :: dpmass
+    type (element_t), intent(in) :: elem(nelemd)
+    !REAL(KIND=real_kind), pointer, dimension(np*np) :: sphweights
+
+    integer  k1, k, iter, weightsnum,ie,i,j
+    real (kind=real_kind) :: addmass, weightssum, mass, sumc, minpk, maxpk
+    real (kind=real_kind) :: x(np*np),c(np*np)
+    real (kind=real_kind) :: tol_limiter = 5e-14
+    
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) private(i,j,k1,iter,x,c) present(elem,ptens,dpmass,minp,maxp)   
+#endif
+  do ie = nets , nete
+    do k=1,nlev
+     !sphweights => reshape(elem(ie)%spheremp, (/ np*np /))
+     sumc=0.0d0
+     mass=0.0d0
+     do k1=1,np*np
+       c(k1)=elem(ie)%spheremp(k1,1)*dpmass(ie,k1,k)
+       x(k1)=ptens(ie,k1,k)/dpmass(ie,k1,k)
+       sumc=sumc+c(k1)
+       mass=mass+c(k1)*x(k1)
+     enddo
+     !  k1 = 1
+     !  do j = 1, np
+     !     do i = 1, np
+     !        c(k1) = elem(ie)%spheremp(i,j)*dpmass(i,j,k)
+     !        x(k1) = ptens(i,j,k)/dpmass(i,j,k)
+     !        sumc=sumc+c(k1)
+     !        mass=mass+c(k1)*x(k1)
+     !        k1 = k1+1
+     !     enddo
+     !  enddo
+
+     if (sumc <= 0 ) CYCLE   ! this should never happen, but if it does, dont limit
+      ! relax constraints to ensure limiter has a solution:
+      ! This is only needed if runnign with the SSP CFL>1 or
+      ! due to roundoff errors
+
+      if( mass < minp(k,q,ie)*sumc ) then
+        minp(k,q,ie) = mass / sumc
+      endif
+      if( mass > maxp(k,q,ie)*sumc ) then
+        maxp(k,q,ie) = mass / sumc
+      endif
+      minpk = minp(k,q,ie)
+      maxpk = maxp(k,q,ie)
+
+     do iter=1,np*np-1
+
+      addmass=0.0d0
+
+       do k1=1,np*np
+         if(x(k1)>maxpk) then
+           addmass=addmass+(x(k1)-maxpk)*c(k1)
+           x(k1)=maxpk
+         else if(x(k1)<minpk) then
+           addmass=addmass-(minpk-x(k1))*c(k1)
+           x(k1)=minpk
+         endif
+       enddo !k1
+
+       if(abs(addmass)<=tol_limiter*abs(mass)) exit
+
+       weightssum=0.0d0
+       if(addmass>0)then
+        do k1=1,np*np
+          if(x(k1)<maxpk)then
+            weightssum=weightssum+c(k1)
+          endif
+        enddo !k1
+        do k1=1,np*np
+          if(x(k1)<maxpk)then
+              x(k1)=x(k1)+addmass/weightssum
+          endif
+        enddo
+      else
+        do k1=1,np*np
+          if(x(k1)>minpk)then
+            weightssum=weightssum+c(k1)
+          endif
+        enddo
+        do k1=1,np*np
+          if(x(k1)>minpk)then
+            x(k1)=x(k1)+addmass/weightssum
+         endif
+        enddo
+      endif
+
+   enddo!end of iteration
+
+   ptens(ie,:,k)=x(:)*dpmass(ie,:,k)
+
+  enddo !k
+ enddo !ie
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+  end subroutine limiter_optim_iter_full_openacc
+  
   subroutine limiter_clip_and_sum(ptens,sphweights,minp,maxp,dpmass)
     ! Prototype limiter. This is perhaps the fastest limiter that (i) is assured
     ! to find x in the constraint set if that set is not empty and (ii) is such
@@ -2055,7 +2184,9 @@ contains
     use kinds         , only : real_kind
     use dimensions_mod, only : np, np, nlev
     implicit none
-
+#ifdef OPENACC_HOMME
+!$acc routine seq 
+#endif
     real (kind=real_kind), dimension(np,np,nlev), intent(inout) :: ptens
     real (kind=real_kind), dimension(np,np),      intent(in)    :: sphweights
     real (kind=real_kind), dimension(nlev),       intent(inout) :: minp, maxp
@@ -2133,5 +2264,102 @@ contains
 
     enddo
   end subroutine limiter_clip_and_sum
+  
+    subroutine limiter_clip_and_sum_openacc(ptens,elem,minp,maxp,dpmass,q,nets,nete)
+    ! Prototype limiter. This is perhaps the fastest limiter that (i) is assured
+    ! to find x in the constraint set if that set is not empty and (ii) is such
+    ! that the 1-norm of the update, norm(x*c - ptens*sphweights, 1), is
+    ! minimal. It does not require iteration. However, its solution quality is
+    ! not established.
+      USE kinds, ONLY: real_kind 
+      USE dimensions_mod, ONLY: np, np, nlev, qsize 
+    implicit none
+
+    integer             , intent(in) :: nets 
+    integer             , intent(in) :: nete
+    integer             , intent(in) :: q
+    real (kind=real_kind), dimension(nelemd,np,np,nlev), intent(inout) :: ptens
+    !real (kind=real_kind), dimension(np,np),      intent(in)    :: sphweights
+    real (kind=real_kind), dimension(nlev,qsize,nelemd),       intent(inout) :: minp, maxp
+    real (kind=real_kind), dimension(nelemd,np,np,nlev), intent(in), optional :: dpmass
+    type (element_t), intent(in) :: elem(nelemd)
+    real (kind=real_kind), parameter :: zero = 0.0d0
+
+    integer :: k1, k, i, j,ie
+    logical :: modified
+    real (kind=real_kind) :: addmass, mass, sumc, den
+    real (kind=real_kind) :: x(np*np),c(np*np),v(np*np)
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) private(k1,i,j,x,c,v) present(elem,ptens,dpmass,minp,maxp)   
+#endif
+  do ie = nets , nete
+    do k=1,nlev
+       k1 = 1
+       do j = 1, np
+          do i = 1, np
+             c(k1) = elem(ie)%spheremp(i,j)*dpmass(ie,i,j,k)
+             x(k1) = ptens(ie,i,j,k)/dpmass(ie,i,j,k)
+             k1 = k1+1
+          enddo
+       enddo
+
+       sumc = sum(c)
+       mass = sum(c*x)
+       ! This should never happen, but if it does, don't limit.
+       if (sumc <= 0) cycle
+       ! Relax constraints to ensure limiter has a solution; this is only needed
+       ! if running with the SSP CFL>1 or due to roundoff errors.
+       if (mass < minp(k,q,ie)*sumc) then
+          minp(k,q,ie) = mass / sumc
+       endif
+       if (mass > maxp(k,q,ie)*sumc) then
+          maxp(k,q,ie) = mass / sumc
+       endif
+
+       addmass = zero
+       ! Clip.
+
+       modified = .false.
+       do k1 = 1, np*np
+          if (x(k1) > maxp(k,q,ie)) then
+             modified = .true.
+             addmass = addmass + (x(k1) - maxp(k,q,ie))*c(k1)
+             x(k1) = maxp(k,q,ie)
+          elseif (x(k1) < minp(k,q,ie)) then
+             modified = .true.
+             addmass = addmass + (x(k1) - minp(k,q,ie))*c(k1)
+             x(k1) = minp(k,q,ie)
+          end if
+       end do
+       if (.not. modified) cycle
+
+       if (addmass /= zero) then
+          ! Determine weights.
+          if (addmass > zero) then
+             v(:) = maxp(k,q,ie) - x(:)
+          else
+             v(:) = x(:) - minp(k,q,ie)
+          end if
+          den = sum(v*c)
+          if (den > zero) then
+             ! Update.
+             x(:) = x(:) + (addmass/den)*v(:)
+          end if
+       end if
+
+       k1 = 1
+       do j = 1,np
+          do i = 1,np
+             ptens(ie,i,j,k) = x(k1)*dpmass(ie,i,j,k)
+             k1 = k1+1
+          end do
+       end do
+
+    enddo !k
+  enddo !ie
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+  end subroutine limiter_clip_and_sum_openacc
 
 end module derivative_mod_base

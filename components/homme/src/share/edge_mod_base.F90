@@ -55,6 +55,7 @@ module edge_mod_base
   public :: edge_g
 
   logical, private :: threadsafe=.true.
+  !$acc declare create(threadsafe)
 
   real(kind=real_kind), parameter, public :: edgeDefaultVal = 1.11e+100_real_kind
 
@@ -637,8 +638,246 @@ endif
 
   end subroutine edgeVpack_nlyr
 
+#if 0
+  subroutine edgeVpack_nlyr_openacc(edge,elem,vlyr,kptr,nlyr_tot,nets,nete,np1,var_type,q1)
+      USE dimensions_mod, ONLY: np, max_corner_elem, nlev 
+      USE control_mod, ONLY: north, south, east, west, swest 
+      USE element_mod, ONLY: element_t 
+      USE element_state, ONLY: elem_state_t, derived_state_t
+#ifdef OPENACC_HOMME
+  !!$acc routine vector 
+#endif
 
+    type (EdgeBuffer_t)                :: edge
+    integer,              intent(in)   :: vlyr
+    !real (kind=real_kind)              :: v(np,np,vlyr)
+    integer,              intent(in)   :: kptr
+    integer,              intent(in)   :: nlyr_tot
+    integer,              intent(in)   :: nets
+    integer,              intent(in)   :: nete
+    integer,              intent(in)   :: np1     
+    integer,              intent(in)   :: var_type 
+    integer,intent(in),optional :: q1
+    TYPE(element_t), target, INTENT(INOUT) :: elem(:)
+    REAL(KIND=real_kind), pointer, dimension(:,:,:) :: v
+    ! Local variables
+    integer :: i,k,ir,ll,llval,iptr, ie1
 
+    integer :: is,ie,in,iw
+
+!#if 0    
+    if (edge%nlyr_max < (kptr+vlyr) ) then
+       print *,'edge%nlyr_max = ',edge%nlyr_max
+       print *,'kptr+vlyr = ',kptr+vlyr
+       call abortmp('edgeVpack: Buffer overflow: edge%nlyr_max too small for kptr')
+    endif
+    if (edge%nlyr_max < nlyr_tot ) then
+       print *,'edge%nlyr_max = ',edge%nlyr_max
+       print *,'nlyr_tot = ',nlyr_tot
+       call abortmp('edgeVpack: Buffer overflow: edge%nlyr_max too small for nlyr_tot')
+    endif
+!#endif 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang private(i,k,ir,ll,llval,iptr,is,ie,in,iw) present(elem,edge) 
+#endif     
+  do ie1=nets,nete !nete
+   !do k=1,vlyr
+    is = nlyr_tot*elem(ie1)%desc%putmapP(south)
+    ie = nlyr_tot*elem(ie1)%desc%putmapP(east)
+    in = nlyr_tot*elem(ie1)%desc%putmapP(north)
+    iw = nlyr_tot*elem(ie1)%desc%putmapP(west)
+    
+    select case (var_type)
+   
+      case (1) 
+         v => elem(ie1)%state%dp3d(:,:,:,np1) 
+
+      case (2)
+         v => elem(ie1)%state%vtheta_dp(:,:,:,np1)
+      
+      case (3) 
+         v => elem(ie1)%state%w_i(:,:,:,np1) 
+
+      case (4)
+         v => elem(ie1)%state%phinh_i(:,:,:,np1) 
+         
+      case (6)
+         v => elem(ie1)%state%Qdp(:,:,:,q1,np1) 
+         
+      case (7)
+         v => elem(ie1)%derived%eta_dot_dpdn(:,:,1:nlev) 
+         
+      case (8)
+         v => elem(ie1)%derived%omega_p 
+         
+      case (9)
+         v => elem(ie1)%derived%divdp_proj
+         
+      case default
+         print*, "Invalid var_type" 
+      
+   end select
+    
+     
+    do k=1,vlyr
+       iptr = np*(kptr+k-1)
+       !$acc loop vector 
+       do i=1,np
+          edge%buf(iptr+is+i)   = v(i  ,1 ,k) ! South
+          edge%buf(iptr+in+i)   = v(i  ,np,k) ! North
+          edge%buf(iptr+iw+i)   = v(1  ,i ,k) ! West
+          edge%buf(iptr+ie+i)   = v(np ,i ,k) ! East
+       enddo
+    enddo
+    !  This is really kludgy way to setup the index reversals
+    !  But since it is so a rare event not real need to spend time optimizing
+  end do    
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang private(i,k,ir,ll,llval,iptr,is,ie,in,iw) vector_length(32) present(elem,edge)
+#endif 
+  do ie1=nets,nete !nete
+    is = nlyr_tot*elem(ie1)%desc%putmapP(south)
+    ie = nlyr_tot*elem(ie1)%desc%putmapP(east)
+    in = nlyr_tot*elem(ie1)%desc%putmapP(north)
+    iw = nlyr_tot*elem(ie1)%desc%putmapP(west)
+    
+    select case (var_type)
+   
+      case (1) 
+         v => elem(ie1)%state%dp3d(:,:,:,np1) 
+
+      case (2)
+         v => elem(ie1)%state%vtheta_dp(:,:,:,np1)
+      
+      case (3) 
+         v => elem(ie1)%state%w_i(:,:,:,np1) 
+
+      case (4)
+         v => elem(ie1)%state%phinh_i(:,:,:,np1)       
+
+      case (6)
+         v => elem(ie1)%state%Qdp(:,:,:,q1,np1) 
+         
+      case (7)
+         v => elem(ie1)%derived%eta_dot_dpdn(:,:,1:nlev) 
+         
+      case (8)
+         v => elem(ie1)%derived%omega_p 
+         
+      case (9)
+         v => elem(ie1)%derived%divdp_proj         
+
+      case default
+         print*, "Invalid var_type" 
+      
+   end select
+
+    if(elem(ie1)%desc%reverse(south)) then
+!dir$ ivdep
+       !$acc loop vector
+       do k=1,vlyr
+          iptr = np*(kptr+k-1)+is
+          do i=1,np
+             edge%buf(iptr+np-i+1)=v(i,1,k)
+          enddo
+       enddo
+    endif
+
+    if(elem(ie1)%desc%reverse(east)) then
+!dir$ ivdep
+       !$acc loop vector
+       do k=1,vlyr
+          iptr=np*(kptr+k-1)+ie
+          do i=1,np
+             edge%buf(iptr+np-i+1)=v(np,i,k)
+          enddo
+       enddo
+    endif
+
+    if(elem(ie1)%desc%reverse(north)) then
+!dir$ ivdep
+       !$acc loop vector
+       do k=1,vlyr
+          iptr=np*(kptr+k-1)+in
+          do i=1,np
+             edge%buf(iptr+np-i+1)=v(i,np,k)
+          enddo
+       enddo
+    endif
+
+    if(elem(ie1)%desc%reverse(west)) then
+!dir$ ivdep
+       !$acc loop vector
+       do k=1,vlyr
+          iptr=np*(kptr+k-1)+iw
+          do i=1,np
+             edge%buf(iptr+np-i+1)=v(1,i,k)
+          enddo
+       enddo
+    endif
+! SWEST
+
+    do ll=swest,swest+max_corner_elem-1
+        llval=elem(ie1)%desc%putmapP(ll)
+        if (llval /= -1) then
+!dir$ ivdep
+            !$acc loop vector
+            do k=1,vlyr
+                edge%buf(kptr+k+nlyr_tot*llval)=v(1  ,1 ,k)
+            end do
+        end if
+    end do
+! SEAST
+
+    do ll=swest+max_corner_elem,swest+2*max_corner_elem-1
+        llval=elem(ie1)%desc%putmapP(ll)
+        if (llval /= -1) then
+!dir$ ivdep
+            !$acc loop vector
+            do k=1,vlyr
+                edge%buf(kptr+k+nlyr_tot*llval)=v(np ,1 ,k)
+            end do
+        end if
+    end do
+! NEAST
+
+    do ll=swest+3*max_corner_elem,swest+4*max_corner_elem-1
+        llval=elem(ie1)%desc%putmapP(ll)
+        if (llval /= -1) then
+!dir$ ivdep
+            !$acc loop vector
+            do k=1,vlyr
+                edge%buf(kptr+k+nlyr_tot*llval)=v(np ,np,k)
+            end do
+        end if
+    end do
+! NWEST
+
+    do ll=swest+2*max_corner_elem,swest+3*max_corner_elem-1
+        llval=elem(ie1)%desc%putmapP(ll)
+        if (llval /= -1) then
+!dir$ ivdep
+            !$acc loop vector
+            do k=1,vlyr
+                edge%buf(kptr+k+nlyr_tot*llval)=v(1  ,np,k)
+            end do
+        end if
+    end do  
+  end do    
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+    edge%nlyr = nlyr_tot  ! set total amount of data for bndry exchange 
+
+  end subroutine edgeVpack_nlyr_openacc
+  
+#endif
+
+  
   subroutine edgeSpack(edge,v,vlyr,kptr,nlyr_tot,ielem)
     use dimensions_mod, only : np, max_corner_elem
     use control_mod, only : north, south, east, west, neast, nwest, seast, swest
@@ -1331,7 +1570,9 @@ endif
   subroutine edgeSunpackMAX(edge,v,vlyr,kptr,nlyr_tot,ielem)
     use dimensions_mod, only : np, max_corner_elem
     use control_mod, only : north, south, east, west, neast, nwest, seast, swest
-
+#ifdef OPENACC_HOMME
+  !$acc routine vector 
+#endif
     type (EdgeBuffer_t),         intent(in)  :: edge
     integer,               intent(in)  :: vlyr,nlyr_tot
     real (kind=real_kind), intent(inout) :: v(vlyr)
@@ -1344,12 +1585,14 @@ endif
     integer :: getmapL
     type (EdgeDescriptor_t), pointer   :: desc
 
+#ifndef OPENACC_HOMME
     if (edge%nlyr_max < (kptr+vlyr) ) then
        call abortmp('edgeSunpackMAX: Buffer overflow: edge%nlyr_max too small')
     endif
     if (edge%nlyr_max < nlyr_tot ) then
        call abortmp('edgeSunpackMAX: Buffer overflow: edge%nlyr_max too small')
     endif
+#endif
 
     threadsafe=.false.
 
@@ -1360,6 +1603,9 @@ endif
     in=nlyr_tot*desc%getmapS(north)
     iw=nlyr_tot*desc%getmapS(west)
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
     do k=1,vlyr
        iptr=(kptr+k-1)
        v(k) = MAX(v(k),edge%receive(iptr+is+1),edge%receive(iptr+ie+1),edge%receive(iptr+in+1),edge%receive(iptr+iw+1))
@@ -1370,6 +1616,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 iptr = (kptr+k-1)
                 v(k)=MAX(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
@@ -1382,6 +1631,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 iptr = (kptr+k-1)
                 v(k)=MAX(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
@@ -1394,6 +1646,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 iptr = (kptr+k-1)
                 v(k)=MAX(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
@@ -1406,6 +1661,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 iptr = (kptr+k-1)
                 v(k)=MAX(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
@@ -1419,7 +1677,9 @@ endif
   subroutine edgeSunpackMIN(edge,v,vlyr,kptr,nlyr_tot,ielem)
     use dimensions_mod, only : np, max_corner_elem
     use control_mod, only : north, south, east, west, neast, nwest, seast, swest
-
+#ifdef OPENACC_HOMME
+  !$acc routine vector 
+#endif
     type (EdgeBuffer_t),         intent(in)  :: edge
     integer,               intent(in)  :: vlyr,nlyr_tot
     real (kind=real_kind), intent(inout) :: v(vlyr)
@@ -1435,13 +1695,14 @@ endif
     type (EdgeDescriptor_t), pointer   :: desc
 
 !pw call t_startf('edgeSunpack')
+#ifndef OPENACC_HOMME
     if (edge%nlyr_max < (kptr+vlyr) ) then
        call abortmp('edgeSunpackMIN: Buffer overflow: edge%nlyr_max too small')
     endif
     if (edge%nlyr_max < nlyr_tot ) then
        call abortmp('edgeSunpackMIN: Buffer overflow: edge%nlyr_max too small')
     endif
-
+#endif
     threadsafe=.false.
 
     desc => edge%desc(ielem)
@@ -1451,6 +1712,9 @@ endif
     in=nlyr_tot*desc%getmapS(north)
     iw=nlyr_tot*desc%getmapS(west)
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
     do k=1,vlyr
        iptr=(kptr+k-1)
        v(k) = MIN(v(k),edge%receive(iptr+is+1),edge%receive(iptr+ie+1),edge%receive(iptr+in+1),edge%receive(iptr+iw+1))
@@ -1461,6 +1725,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(k)=MiN(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
             enddo
@@ -1472,6 +1739,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(k)=MIN(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
             enddo
@@ -1483,6 +1753,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(k)=MIN(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
             enddo
@@ -1494,6 +1767,9 @@ endif
         getmapL = desc%getmapS(l)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(k)=MIN(v(k),edge%receive(kptr+k+nlyr_tot*getmapL))
             enddo

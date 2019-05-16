@@ -1106,8 +1106,8 @@ contains
   
    
 #ifdef OPENACC_HOMME
-call cpu_time(start)
 !$acc update device(elem) 
+!$acc update device(edge_g)
 !$acc enter data create(vtheta_ie, vtheta_i_ie, omega_i_ie, omega_ie, vort_ie, divdp_ie, phi_ie, pnh_ie)
 !$acc enter data create(dp3d_i_ie, exner_ie, dpnh_dp_i_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
 !$acc enter data create(gradphinh_i_ie, gradKE_ie, wvor_ie, gradw_i_ie, v_gradw_i_ie)
@@ -1360,7 +1360,6 @@ call cpu_time(start)
   end do 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!!$acc update self(elem)
 #endif   
   
   
@@ -1382,7 +1381,6 @@ call cpu_time(start)
   
     
 #ifdef OPENACC_HOMME
-!!$acc update device(elem)
 !$acc parallel loop gang vector private(k) present(elem,eta_dot_dpdn_ie,omega_ie)
 #endif     
   do ie=nets,nete !nete
@@ -1784,15 +1782,25 @@ call cpu_time(start)
 #endif   
     
   
+     
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k,kptr) present(elem,w_tens_ie)
+!$acc parallel loop gang vector private(k,kptr) present(elem,w_tens_ie) 
 #endif     
-  do ie=nets,nete !nete      
+  do ie=nets,nete !nete
+  
      k=nlevp
      elem(ie)%state%w_i(:,:,k,np1)    = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%w_i(:,:,k,nm1)   &
           + dt2*w_tens_ie(ie,:,:,k))
 
+   end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang private(k,kptr) present(elem,edge_g) 
+#endif     
+  do ie=nets,nete !nete          
      kptr=0
      call edgeVpack_nlyr(edge_g,elem(ie)%desc,elem(ie)%state%v(:,:,:,:,np1),2*nlev,kptr,nlyr_tot)
      kptr=kptr+2*nlev
@@ -1807,9 +1815,15 @@ call cpu_time(start)
      endif
 
    end do ! end do for the ie=nets,nete loop
+   
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
+#endif
+
+#ifdef OPENACC_HOMME
+!$acc update self(edge_g) 
 !$acc update self(elem)
+!$acc wait
 
 !$acc exit data delete(vtheta_ie, vtheta_i_ie, omega_i_ie, omega_ie, vort_ie, divdp_ie, phi_ie, pnh_ie)
 !$acc exit data delete(dp3d_i_ie, exner_ie, dpnh_dp_i_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
@@ -1817,10 +1831,6 @@ call cpu_time(start)
 !$acc exit data delete(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
 !$acc exit data delete(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
 !$acc exit data delete(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie)
-
-
-call cpu_time(finish)
-  print '("GPU exe Time = ",f6.3," seconds.")',finish-start
 #endif   
     
   call t_startf('caar_bexchV')

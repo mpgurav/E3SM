@@ -48,13 +48,15 @@ module prim_advection_base
   use kinds, only              : real_kind
   use dimensions_mod, only     : nlev, nlevp, np, qsize
   use physical_constants, only : rgas, Rwater_vapor, kappa, g, rearth, rrearth, cp
-  use derivative_mod, only     : derivative_t, gradient_sphere, divergence_sphere
+  use derivative_mod, only     : derivative_t, gradient_sphere, gradient_sphere_openacc, &
+         divergence_sphere, divergence_sphere_openacc
   use element_mod, only        : element_t
   use hybvcoord_mod, only      : hvcoord_t
   use time_mod, only           : TimeLevel_t, TimeLevel_Qdp
   use control_mod, only        : integration, test_case, hypervis_order, &
          nu_q, nu_p, limiter_option, hypervis_subcycle_q, rsplit
-  use edge_mod, only           : initedgesbuffer, edge_g, edgevpack_nlyr, edgevunpack_nlyr
+  use edge_mod, only           : initedgesbuffer, edge_g, edgevpack_nlyr, &
+         edgevunpack_nlyr
   use edgetype_mod, only       : EdgeDescriptor_t, EdgeBuffer_t
   use hybrid_mod, only         : hybrid_t
   use bndry_mod, only          : bndry_exchangev
@@ -272,11 +274,12 @@ contains
   !
   ! ===================================
   use kinds          , only : real_kind
-  use dimensions_mod , only : np, nlev
+  use dimensions_mod , only : np, nlev, nelemd
   use hybrid_mod     , only : hybrid_t
   use element_mod    , only : element_t
   use derivative_mod , only : derivative_t, divergence_sphere, gradient_sphere, vorticity_sphere, &
-                              limiter_optim_iter_full, limiter_clip_and_sum
+                              limiter_optim_iter_full, limiter_optim_iter_full_openacc, &
+                              limiter_clip_and_sum, limiter_clip_and_sum_openacc
   use bndry_mod      , only : bndry_exchangev
   use hybvcoord_mod  , only : hvcoord_t
   implicit none
@@ -299,13 +302,20 @@ contains
   real(kind=real_kind), dimension(np,np  ,nlev                ) :: Qtens
   real(kind=real_kind), dimension(np,np  ,nlev                ) :: dp,dp_star
   real(kind=real_kind), dimension(np,np  ,nlev,qsize,nets:nete) :: Qtens_biharmonic
+  
+  real(kind=real_kind), dimension(nelemd,np,np,nlev) :: dpdissk_ie 
+  real(kind=real_kind), dimension(nelemd,np,np,2,nlev) :: gradQ_ie 
+  real(kind=real_kind), dimension(nelemd,np,np,2,nlev) :: vstar_ie 
+  real(kind=real_kind), dimension(nelemd,np,np   ,nlev) :: qtens_ie 
+  real(kind=real_kind), dimension(nelemd,np,np   ,nlev) :: dp_ie, dp_star_ie 
+      
   real(kind=real_kind), pointer, dimension(:,:,:)               :: DSSvar
   integer :: ie,q,i,j,k, kptr
   integer :: rhs_viss
+  integer,dimension(8) :: values
 
 !  call t_barrierf('sync_euler_step', hybrid%par%comm)
 !pw  call t_startf('euler_step')
-
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !   compute Q min/max values for lim8
   !   compute biharmonic mixing term f
@@ -406,6 +416,7 @@ OMP_SIMD
 !           nets , nete , qmin(:,:,nets:nete) , qmax(:,:,nets:nete) )
       call neighbor_minmax_start(hybrid,edgeAdvQminmax,nets,nete,qmin(:,:,nets:nete),qmax(:,:,nets:nete))
       call biharmonic_wk_scalar(elem,qtens_biharmonic,deriv,edge_g,hybrid,nets,nete) 
+
       do ie = nets , nete
 #if (defined COLUMN_OPENMP_notB4B)
 !$omp parallel do private(k, q)
@@ -418,6 +429,7 @@ OMP_SIMD
           enddo
         enddo
       enddo
+
       call neighbor_minmax_finish(hybrid,edgeAdvQminmax,nets,nete,qmin(:,:,nets:nete),qmax(:,:,nets:nete))
     endif
     call t_stopf('bihmix_qminmax')
@@ -428,33 +440,37 @@ OMP_SIMD
   !   2D Advection step
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   call t_startf('eus_2d_advec')
+#ifdef OPENACC_HOMME
+!$acc update device(elem,edge_g) 
+!$acc enter data copyin(qtens_biharmonic, qmin, qmax)
+!$acc update device(deriv)
+!$acc enter data create(dpdissk_ie,gradQ_ie, Vstar_ie, qtens_ie, dp_star_ie)
+#endif 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,Vstar_ie,dpdissk_ie,qmin) create(dp_ie)
+#endif
   do ie = nets , nete
     ! note: eta_dot_dpdn is actually dimension nlev+1, but nlev+1 data is
     ! all zero so we only have to DSS 1:nlev
-    if ( DSSopt == DSSeta         ) DSSvar => elem(ie)%derived%eta_dot_dpdn(:,:,:)
-    if ( DSSopt == DSSomega       ) DSSvar => elem(ie)%derived%omega_p(:,:,:)
-    if ( DSSopt == DSSdiv_vdp_ave ) DSSvar => elem(ie)%derived%divdp_proj(:,:,:)
+    !if ( DSSopt == DSSeta         ) DSSvar => elem(ie)%derived%eta_dot_dpdn
+    !if ( DSSopt == DSSomega       ) DSSvar => elem(ie)%derived%omega_p
+    !if ( DSSopt == DSSdiv_vdp_ave ) DSSvar => elem(ie)%derived%divdp_proj
 
     ! Compute velocity used to advance Qdp
-#if (defined COLUMN_OPENMP)
-    !$omp parallel do private(k,q)
-#endif
     do k = 1 , nlev    !  Loop index added (AAM)
       ! derived variable divdp_proj() (DSS'd version of divdp) will only be correct on 2nd and 3rd stage
       ! but that's ok because rhs_multiplier=0 on the first stage:
-      dp(:,:,k) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier * dt * elem(ie)%derived%divdp_proj(:,:,k)
-      Vstar(:,:,1,k) = elem(ie)%derived%vn0(:,:,1,k) / dp(:,:,k)
-      Vstar(:,:,2,k) = elem(ie)%derived%vn0(:,:,2,k) / dp(:,:,k)
+      dp_ie(ie,:,:,k) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier * dt * elem(ie)%derived%divdp_proj(:,:,k)
+      Vstar_ie(ie,:,:,1,k) = elem(ie)%derived%vn0(:,:,1,k) / dp_ie(ie,:,:,k)
+      Vstar_ie(ie,:,:,2,k) = elem(ie)%derived%vn0(:,:,2,k) / dp_ie(ie,:,:,k)
 
       if ( limiter_option == 8 .or. limiter_option == 9 ) then
         ! Note that the term dpdissk is independent of Q
         ! UN-DSS'ed dp at timelevel n0+1:
-        dpdissk(:,:,k) = dp(:,:,k) - dt * elem(ie)%derived%divdp(:,:,k)
+        dpdissk_ie(ie,:,:,k) = dp_ie(ie,:,:,k) - dt * elem(ie)%derived%divdp(:,:,k)
         if ( nu_p > 0 .and. rhs_viss /= 0 ) then
           ! add contribution from UN-DSS'ed PS dissipation
-!          dpdiss(:,:) = ( hvcoord%hybi(k+1) - hvcoord%hybi(k) ) *
-!          elem(ie)%derived%psdiss_biharmonic(:,:)
-          dpdissk(:,:,k) = dpdissk(:,:,k) - rhs_viss * dt * nu_q &
+          dpdissk_ie(ie,:,:,k) = dpdissk_ie(ie,:,:,k) - rhs_viss * dt * nu_q &
                            * elem(ie)%derived%dpdiss_biharmonic(:,:,k) / elem(ie)%spheremp(:,:)
         endif
         ! IMPOSE ZERO THRESHOLD.  do this here so it can be turned off for
@@ -465,55 +481,144 @@ OMP_SIMD
       endif  ! limiter == 8 or 9
 
       ! also DSS extra field
-      DSSvar(:,:,k) = elem(ie)%spheremp(:,:) * DSSvar(:,:,k)
+      !DSSvar(:,:,k) = elem(ie)%spheremp(:,:) * DSSvar(:,:,k)
+      
+      if ( DSSopt == DSSeta         ) then
+      	elem(ie)%derived%eta_dot_dpdn(:,:,k) = elem(ie)%spheremp(:,:) * elem(ie)%derived%eta_dot_dpdn(:,:,k)
+      endif
+      
+      if ( DSSopt == DSSomega       ) then
+      elem(ie)%derived%omega_p(:,:,k) = elem(ie)%spheremp(:,:) * elem(ie)%derived%omega_p(:,:,k)
+      endif
+      
+      if ( DSSopt == DSSdiv_vdp_ave ) then
+      elem(ie)%derived%divdp_proj(:,:,k) = elem(ie)%spheremp(:,:) * elem(ie)%derived%divdp_proj(:,:,k)
+      endif
+      
     enddo
-    call edgeVpack_nlyr( edge_g , elem(ie)%desc, DSSvar(:,:,1:nlev) , nlev , nlev*qsize , nlev*(qsize+1))
-
-    ! advance Qdp
-#if (defined COLUMN_OPENMP)
- !$omp parallel do private(q,k,gradQ,dp_star,qtens)
+  enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang present(elem,edge_g) 
+#endif  
+  do ie = nets , nete
+    if ( DSSopt == DSSeta         ) then
+    	call edgeVpack_nlyr( edge_g , elem(ie)%desc, elem(ie)%derived%eta_dot_dpdn(:,:,1:nlev) , nlev , nlev*qsize , nlev*(qsize+1))
+      
+    endif
+    if ( DSSopt == DSSomega       ) then 
+    	call edgeVpack_nlyr( edge_g , elem(ie)%desc, elem(ie)%derived%omega_p(:,:,1:nlev) , nlev , nlev*qsize , nlev*(qsize+1))
+    endif
+     
+    if ( DSSopt == DSSdiv_vdp_ave ) then
+    	call edgeVpack_nlyr( edge_g , elem(ie)%desc, elem(ie)%derived%divdp_proj(:,:,1:nlev) , nlev , nlev*qsize , nlev*(qsize+1))
+    endif
+  enddo ! ie loop
+      
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
 #endif
+ 
+ 
     do q = 1 , qsize
-      do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
-        ! div( U dp Q),
-        gradQ(:,:,1) = Vstar(:,:,1,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
-        gradQ(:,:,2) = Vstar(:,:,2,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
-        dp_star(:,:,k) = divergence_sphere( gradQ , deriv , elem(ie) )
-        Qtens(:,:,k) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp) - dt * dp_star(:,:,k)
-        ! optionally add in hyperviscosity computed above:
-        if ( rhs_viss /= 0 ) Qtens(:,:,k) = Qtens(:,:,k) + Qtens_biharmonic(:,:,k,q,ie)
-      enddo
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,gradQ_ie,Vstar_ie)
+#endif
+      do ie = nets , nete
+        ! advance Qdp
+          do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
+            ! div( U dp Q),
+            gradQ_ie(ie,:,:,1,k) = Vstar_ie(ie,:,:,1,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
+            gradQ_ie(ie,:,:,2,k) = Vstar_ie(ie,:,:,2,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
+            !dp_star_ie(ie,:,:,k) = divergence_sphere( gradQ_ie(ie,:,:,:) , deriv , elem(ie) ) ! calculated separately outside
+          enddo
+      enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
-      if ( limiter_option == 8) then
-        ! apply limiter to Q = Qtens / dp_star
-        !call t_startf('lim8')
-        call limiter_optim_iter_full( Qtens(:,:,:) , elem(ie)%spheremp(:,:) , qmin(:,q,ie) , &
-                                      qmax(:,q,ie) , dpdissk )
-        !call t_stopf('lim8')
-      elseif ( limiter_option == 9 ) then
-        !call t_startf('lim9')
-        call limiter_clip_and_sum(    Qtens(:,:,:) , elem(ie)%spheremp(:,:) , qmin(:,q,ie) , &
-                                      qmax(:,q,ie) , dpdissk )
-        !call t_stopf('lim9')
-      endif
+      call divergence_sphere_openacc(gradQ_ie,deriv,elem,nets,nete,nlev,dp_star_ie)
 
-      ! apply mass matrix, overwrite np1 with solution:
-      ! dont do this earlier, since we allow np1_qdp == n0_qdp
-      ! and we dont want to overwrite n0_qdp until we are done using it
-      do k = 1 , nlev
-        elem(ie)%state%Qdp(:,:,k,q,np1_qdp) = elem(ie)%spheremp(:,:) * Qtens(:,:,k)
-      enddo
+#ifdef OPENACC_HOMME
 
-      if ( limiter_option == 4 ) then
-        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
-        ! sign-preserving limiter, applied after mass matrix
-        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
-        call limiter2d_zero( elem(ie)%state%Qdp(:,:,:,q,np1_qdp))
-      endif
+!$acc parallel loop gang vector collapse(2) present(elem,dp_star_ie,Qtens_ie,Qtens_biharmonic)
+#endif
+      do ie = nets , nete
+        ! advance Qdp
+          do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
+            ! div( U dp Q),
+            Qtens_ie(ie,:,:,k) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp) - dt * dp_star_ie(ie,:,:,k)
+            ! optionally add in hyperviscosity computed above:
+            if ( rhs_viss /= 0 ) Qtens_ie(ie,:,:,k) = Qtens_ie(ie,:,:,k) + Qtens_biharmonic(:,:,k,q,ie)
+          enddo
+      enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
+          if ( limiter_option == 8) then
+            ! apply limiter to Q = Qtens / dp_star
+            call t_startf('lim8')
+            call limiter_optim_iter_full_openacc(Qtens_ie,elem,qmin,qmax,dpdissk_ie,q,nets,nete)
+            call t_stopf('lim8')                                      
+          elseif ( limiter_option == 9 ) then
+            call t_startf('lim9')
+            call limiter_clip_and_sum_openacc(Qtens_ie,elem,qmin,qmax,dpdissk_ie,q,nets,nete)                              
+            call t_stopf('lim9')
+          endif  
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,Qtens_ie)
+#endif
+      do ie = nets , nete
+          ! apply mass matrix, overwrite np1 with solution:
+          ! dont do this earlier, since we allow np1_qdp == n0_qdp
+          ! and we dont want to overwrite n0_qdp until we are done using it
+          do k = 1 , nlev
+            elem(ie)%state%Qdp(:,:,k,q,np1_qdp) = elem(ie)%spheremp(:,:) * Qtens_ie(ie,:,:,k)
+          enddo
+      enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem)
+#endif
+      do ie = nets , nete
+          if ( limiter_option == 4 ) then
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+            ! sign-preserving limiter, applied after mass matrix
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+            call limiter2d_zero( elem(ie)%state%Qdp(:,:,:,q,np1_qdp))
+          endif
+      enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+    enddo ! q loop
+    
+!#if 0      
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,edge_g)
+#endif
+  do ie = nets , nete
+     ! advance Qdp
+    do q = 1 , qsize
       call edgeVpack_nlyr(edge_g , elem(ie)%desc, elem(ie)%state%Qdp(:,:,:,q,np1_qdp) , nlev , nlev*(q-1) , nlev*(qsize+1) )
     enddo
   enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif 
+
+#ifdef OPENACC_HOMME
+!$acc update self(edge_g,elem)
+!$acc update self(qmin,qmax)
+!$acc exit data delete(qtens_biharmonic)
+!$acc exit data delete(qmin, qmax)
+!$acc exit data delete(dpdissk_ie,gradq_ie, vstar_ie, qtens_ie, dp_star_ie)  
+#endif
 
   call t_startf('eus_bexchV')
   call bndry_exchangeV( hybrid , edge_g )
@@ -545,6 +650,7 @@ OMP_SIMD
 !$OMP BARRIER
 #endif
 #endif
+
   call t_stopf('eus_2d_advec')
 !pw call t_stopf('euler_step')
   end subroutine euler_step
@@ -562,6 +668,9 @@ OMP_SIMD
   ! ps is only used when advecting Q instead of Qdp
   ! so ps should be at one timelevel behind Q
   implicit none
+#ifdef OPENACC_HOMME
+!$acc routine seq 
+#endif
   real (kind=real_kind), intent(inout) :: Q(np,np,nlev)
 
   ! local

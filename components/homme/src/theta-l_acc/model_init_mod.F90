@@ -25,6 +25,7 @@ module model_init_mod
   use control_mod,        only: qsplit,theta_hydrostatic_mode
   use time_mod,           only: timelevel_qdp, timelevel_t
   use physical_constants, only: g
+  use edge_mod,           only: edge_g
  
   implicit none
   
@@ -97,7 +98,7 @@ contains
           if (nu_scale_top(k)>1) write(iulog,*) "  nu_scale_top ",k,nu_scale_top(k)
        end if
     end do
-    !$acc enter data create(elem,hvcoord,deriv)
+    !$acc enter data create(elem,hvcoord,deriv,edge_g)
   end subroutine 
 
 
