@@ -1116,7 +1116,9 @@ endif
     integer,               intent(in)  :: vlyr,nlyr_tot
     real (kind=real_kind), intent(inout) :: v(np,np,vlyr)
     type (EdgeDescriptor_t)  :: desc
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
 !$dir assume_aligned v:64
     integer,               intent(in)  :: kptr
 

@@ -1798,7 +1798,7 @@ contains
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang private(k,kptr) present(elem,edge_g) 
+!$acc parallel loop gang vector private(kptr) present(elem,edge_g) 
 #endif     
   do ie=nets,nete !nete          
      kptr=0
@@ -1822,11 +1822,11 @@ contains
 
 #ifdef OPENACC_HOMME
 !$acc update self(edge_g) 
-!$acc update self(elem)
-!$acc wait
+!!$acc update self(elem)
+!!$acc wait
 
 !$acc exit data delete(vtheta_ie, vtheta_i_ie, omega_i_ie, omega_ie, vort_ie, divdp_ie, phi_ie, pnh_ie)
-!$acc exit data delete(dp3d_i_ie, exner_ie, dpnh_dp_i_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
+!$acc exit data delete(dp3d_i_ie, exner_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
 !$acc exit data delete(gradphinh_i_ie, gradKE_ie, wvor_ie, gradw_i_ie, v_gradw_i_ie)
 !$acc exit data delete(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
 !$acc exit data delete(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
@@ -1837,7 +1837,10 @@ contains
   call bndry_exchangeV(hybrid,edge_g)
   call t_stopf('caar_bexchV')
 
-!!$kgen begin_callsite compute_andor_apply_rhs_part2
+#ifdef OPENACC_HOMME
+!$acc update device(edge_g)
+!$acc parallel loop gang vector private(kptr) present(elem,edge_g) 
+#endif   
   do ie=nets,nete
      kptr=0
      call edgeVunpack_nlyr(edge_g,elem(ie)%desc,elem(ie)%state%v(:,:,:,:,np1),2*nlev,kptr,nlyr_tot)
@@ -1851,14 +1854,17 @@ contains
         kptr=kptr+nlevp
         call edgeVunpack_nlyr(edge_g,elem(ie)%desc,elem(ie)%state%phinh_i(:,:,:,np1),nlev,kptr,nlyr_tot)
      endif
-
-      
+  end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif      
      ! ====================================================
      ! Scale tendencies by inverse mass matrix
      ! ====================================================
-#if (defined COLUMN_OPENMP)
-!$omp parallel do private(k)
-#endif
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(k) present(elem,edge_g,dpnh_dp_i_ie) 
+#endif   
+  do ie=nets,nete
      do k=1,nlev
         elem(ie)%state%dp3d(:,:,k,np1) =elem(ie)%rspheremp(:,:)*elem(ie)%state%dp3d(:,:,k,np1)
         elem(ie)%state%vtheta_dp(:,:,k,np1)=elem(ie)%rspheremp(:,:)*elem(ie)%state%vtheta_dp(:,:,k,np1)
@@ -1874,7 +1880,7 @@ contains
      ! now we can compute the correct dphn_dp_i() at the surface:
      if (.not. theta_hydrostatic_mode) then
         ! solve for (dpnh_dp_i-1)
-        dpnh_dp_i(:,:,nlevp) = 1 + &
+        dpnh_dp_i_ie(ie,:,:,nlevp) = 1 + &
              ((elem(ie)%state%v(:,:,1,nlev,np1)*elem(ie)%derived%gradphis(:,:,1) + &
              elem(ie)%state%v(:,:,2,nlev,np1)*elem(ie)%derived%gradphis(:,:,2))/g - &
              elem(ie)%state%w_i(:,:,nlevp,np1)) / &
@@ -1883,22 +1889,23 @@ contains
         
         ! update solution with new dpnh_dp_i value:
         elem(ie)%state%w_i(:,:,nlevp,np1) = elem(ie)%state%w_i(:,:,nlevp,np1) +&
-             scale1*g*(dpnh_dp_i(:,:,nlevp)-1)
+             scale1*g*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)
         elem(ie)%state%v(:,:,1,nlev,np1) =  elem(ie)%state%v(:,:,1,nlev,np1) -&
-             scale1*(dpnh_dp_i(:,:,nlevp)-1)*elem(ie)%derived%gradphis(:,:,1)/2
+             scale1*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)*elem(ie)%derived%gradphis(:,:,1)/2
         elem(ie)%state%v(:,:,2,nlev,np1) =  elem(ie)%state%v(:,:,2,nlev,np1) -&
-             scale1*(dpnh_dp_i(:,:,nlevp)-1)*elem(ie)%derived%gradphis(:,:,2)/2
+             scale1*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)*elem(ie)%derived%gradphis(:,:,2)/2
         
 
 #ifdef ENERGY_DIAGNOSTICS
         ! add in boundary term to T2 and S2 diagnostics:
         if (compute_diagnostics) then
            elem(ie)%accum%T2(:,:)=elem(ie)%accum%T2(:,:)+                &
-                elem(ie)%accum%T2_nlevp_term(:,:)*(dpnh_dp_i(:,:,nlevp)-1)
+                elem(ie)%accum%T2_nlevp_term(:,:)*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)
            elem(ie)%accum%S2(:,:)=-elem(ie)%accum%T2(:,:)      
         endif
 #endif
 
+#ifndef OPENACC_HOMME             
         temp(:,:,1) =  (elem(ie)%state%v(:,:,1,nlev,np1)*elem(ie)%derived%gradphis(:,:,1) + &
              elem(ie)%state%v(:,:,2,nlev,np1)*elem(ie)%derived%gradphis(:,:,2))/g
         if ( maxval(abs(temp(:,:,1)-elem(ie)%state%w_i(:,:,nlevp,np1))) >1e-10) then
@@ -1907,8 +1914,14 @@ contains
            write(iulog,*) 'val2 = ',elem(ie)%state%w_i(:,:,nlevp,np1)
            write(iulog,*) 'diff: ',temp(:,:,1)-elem(ie)%state%w_i(:,:,nlevp,np1)
         endif
+#endif        
      endif
   end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(elem)
+!$acc exit data delete(dpnh_dp_i_ie)
+#endif  
   call t_stopf('compute_andor_apply_rhs')
 !!$kgen end_callsite compute_andor_apply_rhs_part2
   end subroutine compute_andor_apply_rhs

@@ -499,7 +499,7 @@ OMP_SIMD
   enddo ! ie loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc parallel loop gang present(elem,edge_g) 
+!$acc parallel loop gang vector present(elem,edge_g) 
 #endif  
   do ie = nets , nete
     if ( DSSopt == DSSeta         ) then
@@ -613,7 +613,7 @@ OMP_SIMD
 #endif 
 
 #ifdef OPENACC_HOMME
-!$acc update self(edge_g,elem)
+!$acc update self(edge_g)
 !$acc update self(qmin,qmax)
 !$acc exit data delete(qtens_biharmonic)
 !$acc exit data delete(qmin, qmax)
@@ -623,18 +623,44 @@ OMP_SIMD
   call t_startf('eus_bexchV')
   call bndry_exchangeV( hybrid , edge_g )
   call t_stopf('eus_bexchV')
-
+#ifdef OPENACC_HOMME
+!$acc update device(edge_g)
+!$acc parallel loop gang vector present(elem,edge_g)
+#endif
   do ie = nets , nete
-    if ( DSSopt == DSSeta         ) DSSvar => elem(ie)%derived%eta_dot_dpdn(:,:,:)
-    if ( DSSopt == DSSomega       ) DSSvar => elem(ie)%derived%omega_p(:,:,:)
-    if ( DSSopt == DSSdiv_vdp_ave ) DSSvar => elem(ie)%derived%divdp_proj(:,:,:)
+    !if ( DSSopt == DSSeta         ) DSSvar => elem(ie)%derived%eta_dot_dpdn(:,:,:)
+    !if ( DSSopt == DSSomega       ) DSSvar => elem(ie)%derived%omega_p(:,:,:)
+    !if ( DSSopt == DSSdiv_vdp_ave ) DSSvar => elem(ie)%derived%divdp_proj(:,:,:)
+    
+    if ( DSSopt == DSSeta         ) then !DSSvar => elem(ie)%derived%eta_dot_dpdn(:,:,:)
+      call edgeVunpack_nlyr(edge_g , elem(ie)%desc, elem(ie)%derived%eta_dot_dpdn(:,:,1:nlev) , nlev , qsize*nlev, (qsize+1)*nlev)
+      do k = 1 , nlev
+        elem(ie)%derived%eta_dot_dpdn(:,:,k) = elem(ie)%derived%eta_dot_dpdn(:,:,k) * elem(ie)%rspheremp(:,:)
+      enddo
+    endif
+ 
+    if ( DSSopt == DSSomega       ) then !DSSvar => elem(ie)%derived%omega_p(:,:,:)    
+      call edgeVunpack_nlyr(edge_g , elem(ie)%desc, elem(ie)%derived%omega_p(:,:,1:nlev) , nlev , qsize*nlev, (qsize+1)*nlev)
+      do k = 1 , nlev
+        elem(ie)%derived%omega_p(:,:,k) = elem(ie)%derived%omega_p(:,:,k) * elem(ie)%rspheremp(:,:)
+      enddo
+    endif
+  
+    if ( DSSopt == DSSdiv_vdp_ave ) then !DSSvar => elem(ie)%derived%divdp_proj(:,:,:)    
+      call edgeVunpack_nlyr(edge_g , elem(ie)%desc, elem(ie)%derived%divdp_proj(:,:,1:nlev) , nlev , qsize*nlev, (qsize+1)*nlev)
+      do k = 1 , nlev
+        elem(ie)%derived%divdp_proj(:,:,k) = elem(ie)%derived%divdp_proj(:,:,k) * elem(ie)%rspheremp(:,:)
+      enddo
+    endif
+  enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif 
 
-    call edgeVunpack_nlyr(edge_g , elem(ie)%desc, DSSvar(:,:,1:nlev) , nlev , qsize*nlev, (qsize+1)*nlev)
-OMP_SIMD
-    do k = 1 , nlev
-      DSSvar(:,:,k) = DSSvar(:,:,k) * elem(ie)%rspheremp(:,:)
-    enddo
-
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,edge_g)
+#endif
+  do ie = nets , nete      
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(q,k)
 #endif
@@ -644,13 +670,16 @@ OMP_SIMD
         elem(ie)%state%Qdp(:,:,k,q,np1_qdp) = elem(ie)%rspheremp(:,:) * elem(ie)%state%Qdp(:,:,k,q,np1_qdp)
       enddo
     enddo
-  enddo
 #ifdef DEBUGOMP
 #if (defined HORIZ_OPENMP)
 !$OMP BARRIER
 #endif
 #endif
-
+  enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(elem)
+#endif 
   call t_stopf('eus_2d_advec')
 !pw call t_stopf('euler_step')
   end subroutine euler_step
