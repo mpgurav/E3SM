@@ -178,7 +178,9 @@ contains
 
     !rhs_multiplier is for obtaining dp_tracers at each stage:
     !dp_tracers(stage) = dp - rhs_multiplier*dt*divdp_proj
-
+#ifdef OPENACC_HOMME
+!$acc update device(elem,deriv,edge_g,hvcoord)
+#endif
     call t_startf('euler_step_0')
     rhs_multiplier = 0
     call euler_step( np1_qdp , n0_qdp  , dt/2 , elem , hvcoord , hybrid , deriv , nets , nete , DSSdiv_vdp_ave , rhs_multiplier )
@@ -193,7 +195,9 @@ contains
     rhs_multiplier = 2
     call euler_step( np1_qdp , np1_qdp , dt/2 , elem , hvcoord , hybrid , deriv , nets , nete , DSSomega       , rhs_multiplier )
     call t_stopf('euler_step_2')
-
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+#endif
     !to finish the 2D advection step, we need to average the t and t+2 results to get a second order estimate for t+1.
     call t_startf('qdp_tavg')
     call qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp , limiter_option , nu_p , nets , nete )
@@ -321,6 +325,12 @@ contains
   !   compute biharmonic mixing term f
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   rhs_viss = 0
+#ifdef OPENACC_HOMME
+!!$acc update device(elem,deriv,edge_g,hvcoord)
+!$acc enter data copyin(edgeAdvQminmax)
+!$acc enter data create(qtens_biharmonic,qmin,qmax)
+!$acc enter data create(dpdissk_ie,gradQ_ie, Vstar_ie, qtens_ie, dp_star_ie)
+#endif   
   if ( limiter_option == 8 .or. limiter_option == 9 ) then
     call t_startf('bihmix_qminmax')
     ! when running lim8, we also need to limit the biharmonic, so that term needs
@@ -350,18 +360,21 @@ contains
     !        for nu_p=nu_q>0, we need to apply dissipation to Q * diffusion_dp
     !
     ! initialize dp, and compute Q from Qdp (and store Q in Qtens_biharmonic)
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector  create(dp_ie) present(Qtens_biharmonic,elem,qmin,qmax)
+#endif     
     do ie = nets , nete
       ! add hyperviscosity to RHS.  apply to Q at timelevel n0, Qdp(n0)/dp
 OMP_SIMD
       do k = 1 , nlev    !  Loop index added with implicit inversion (AAM)
-        dp(:,:,k) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier*dt*elem(ie)%derived%divdp_proj(:,:,k)
+        dp_ie(ie,:,:,k) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier*dt*elem(ie)%derived%divdp_proj(:,:,k)
       enddo
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(q,k) collapse(2)
 #endif
       do q = 1 , qsize
         do k=1,nlev
-          Qtens_biharmonic(:,:,k,q,ie) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp)/dp(:,:,k)
+          Qtens_biharmonic(:,:,k,q,ie) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp)/dp_ie(ie,:,:,k)
           if ( rhs_multiplier == 1 ) then
              ! for this stage, we skip neighbor_minmax() call, but update
              ! qmin/qmax with any new local extrema:
@@ -376,6 +389,9 @@ OMP_SIMD
         enddo
       enddo
     enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
     ! compute element qmin/qmax
     if ( rhs_multiplier == 0 ) then
@@ -392,6 +408,9 @@ OMP_SIMD
       ! nu_p=0:    qtens_biharmonic *= dp0                   (apply viscsoity only to q)
       ! nu_p>0):   qtens_biharmonc *= elem()%psdiss_ave      (for consistency, if nu_p=nu_q)
       if ( nu_p > 0 ) then
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(3) present(Qtens_biharmonic,elem,hvcoord)
+#endif      
         do ie = nets , nete
 #if (defined COLUMN_OPENMP)
        !$omp parallel do private(k, q) collapse(2)
@@ -404,6 +423,9 @@ OMP_SIMD
             enddo
           enddo
         enddo ! ie loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif        
       endif ! nu_p > 0
 
 !   Previous version of biharmonic_wk_scalar_minmax included a min/max
@@ -417,6 +439,9 @@ OMP_SIMD
       call neighbor_minmax_start(hybrid,edgeAdvQminmax,nets,nete,qmin(:,:,nets:nete),qmax(:,:,nets:nete))
       call biharmonic_wk_scalar(elem,qtens_biharmonic,deriv,edge_g,hybrid,nets,nete) 
 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(3) present(elem,Qtens_biharmonic,hvcoord)
+#endif
       do ie = nets , nete
 #if (defined COLUMN_OPENMP_notB4B)
 !$omp parallel do private(k, q)
@@ -429,6 +454,9 @@ OMP_SIMD
           enddo
         enddo
       enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
       call neighbor_minmax_finish(hybrid,edgeAdvQminmax,nets,nete,qmin(:,:,nets:nete),qmax(:,:,nets:nete))
     endif
@@ -439,13 +467,7 @@ OMP_SIMD
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !   2D Advection step
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  call t_startf('eus_2d_advec')
-#ifdef OPENACC_HOMME
-!$acc update device(elem,edge_g) 
-!$acc enter data copyin(qtens_biharmonic, qmin, qmax)
-!$acc update device(deriv)
-!$acc enter data create(dpdissk_ie,gradQ_ie, Vstar_ie, qtens_ie, dp_star_ie)
-#endif 
+  call t_startf('eus_2d_advec') 
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,Vstar_ie,dpdissk_ie,qmin) create(dp_ie)
 #endif
@@ -614,8 +636,8 @@ OMP_SIMD
 
 #ifdef OPENACC_HOMME
 !$acc update self(edge_g)
-!$acc update self(qmin,qmax)
-!$acc exit data delete(qtens_biharmonic)
+!!$acc update self(qmin,qmax)
+!$acc exit data delete(qtens_biharmonic,edgeAdvQminmax)
 !$acc exit data delete(qmin, qmax)
 !$acc exit data delete(dpdissk_ie,gradq_ie, vstar_ie, qtens_ie, dp_star_ie)  
 #endif
@@ -678,7 +700,7 @@ OMP_SIMD
   enddo
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc update self(elem)
+!!$acc update self(elem)
 #endif 
   call t_stopf('eus_2d_advec')
 !pw call t_stopf('euler_step')

@@ -119,6 +119,7 @@ module control_mod
   real (kind=real_kind), public :: hypervis_power=0           ! if not 0, use variable hyperviscosity based on element area
   real (kind=real_kind), public :: hypervis_scaling=0         ! use tensor hyperviscosity
 
+  !$acc declare create(hypervis_power,hypervis_scaling)
   !three types of hyper viscosity are supported right now:
   ! (1) const hv:    nu * del^2 del^2
   ! (2) scalar hv:   nu(lat,lon) * del^2 del^2

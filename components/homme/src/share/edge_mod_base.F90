@@ -888,6 +888,9 @@ endif
     integer,              intent(in)   :: kptr
     integer,              intent(in)   :: ielem
 !    type (EdgeDescriptor_t),intent(in) :: desc
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
 
     ! Local variables
     integer :: i,k,ir,ll,llval,iptr
@@ -895,13 +898,14 @@ endif
     integer :: is,ie,in,iw
     real (kind=real_kind) :: tmp
 
+#ifndef OPENACC_HOMME
     if (edge%nlyr_max < (kptr+vlyr) ) then
        call abortmp('edgeSpack: Buffer overflow: edge%nlyr_max too small')
     endif
     if (edge%nlyr_max < nlyr_tot ) then
        call abortmp('edgeSpack: Buffer overflow: edge%nlyr_max too small')
     endif
-
+#endif
 
     desc => edge%desc(ielem)
     edge%nlyr = nlyr_tot          ! set size actually used for bndry_exchange()

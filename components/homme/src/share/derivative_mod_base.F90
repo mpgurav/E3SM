@@ -860,7 +860,9 @@ contains
     type (derivative_t), intent(in) :: deriv
     type (element_t), intent(in) :: elem
     real(kind=real_kind) :: div(np,np)
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
     ! Local
 
     integer i,j,m,n
@@ -1367,7 +1369,9 @@ contains
     real(kind=real_kind)             :: laplace(np,np)
     real(kind=real_kind)             :: laplace2(np,np)
     integer i,j
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
     ! Local
     real(kind=real_kind) :: grads(np,np,2), oldgrads(np,np,2)
 

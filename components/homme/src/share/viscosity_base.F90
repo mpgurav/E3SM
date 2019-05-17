@@ -96,7 +96,9 @@ logical var_coef1
    if(hypervis_scaling > 0)    var_coef1 = .false.
 
 
-
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) private(lap_p) present(elem,qtens,edgeq,deriv)
+#endif
    do ie=nets,nete
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k, q, lap_p)
@@ -110,16 +112,20 @@ logical var_coef1
          call edgeVpack_nlyr(edgeq, elem(ie)%desc, qtens(:,:,:,q,ie),nlev,nlev*(q-1),qsize*nlev)
       enddo
    enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
    call t_startf('biwksc_bexchV')
    call bndry_exchangeV(hybrid,edgeq)
    call t_stopf('biwksc_bexchV')
-   
-   do ie=nets,nete
 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) private(lap_p) present(qtens,elem,edgeq,deriv)
+#endif   
+   do ie=nets,nete
       ! apply inverse mass matrix, then apply laplace again
 #if (defined COLUMN_OPENMP)
-!$omp parallel do private(k, q, lap_p)
+!$omp parallel do private(k, q, lap_p) 
 #endif
       do q=1,qsize      
         call edgeVunpack_nlyr(edgeq,elem(ie)%desc,qtens(:,:,:,q,ie),nlev,nlev*(q-1),qsize*nlev)
@@ -133,6 +139,9 @@ logical var_coef1
 #if (defined HORIZ_OPENMP)
 !$OMP BARRIER
 #endif
+#endif
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
 #endif
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 end subroutine
@@ -450,18 +459,28 @@ subroutine neighbor_minmax(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh)
    ! local 
    integer :: ie,q, k,kptr
 
-   
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(min_neigh,max_neigh,edgeMinMax)
+#endif    
    do ie=nets,nete
       kptr = 0
       call  edgeSpack(edgeMinMax,min_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
       kptr = qsize*nlev
       call  edgeSpack(edgeMinMax,max_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
    enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(edgeMinMax)
+#endif   
    
    call t_startf('nmm_bexchV')
    call bndry_exchangeS(hybrid,edgeMinMax)
    call t_stopf('nmm_bexchV')
 
+#ifdef OPENACC_HOMME
+!$acc update device(edgeMinMax)
+!$acc parallel loop gang vector present(min_neigh,max_neigh,edgeMinMax)
+#endif 
    do ie=nets,nete
       kptr = 0
       call  edgeSunpackMIN(edgeMinMax,min_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
@@ -473,7 +492,9 @@ subroutine neighbor_minmax(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh)
       enddo
       enddo
    enddo
-  
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif   
 end subroutine neighbor_minmax
 
 subroutine neighbor_minmax_start(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh)
@@ -487,17 +508,25 @@ subroutine neighbor_minmax_start(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh
    ! local 
    integer :: ie,q, k,kptr
 
-
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(min_neigh,max_neigh,edgeMinMax)
+#endif
    do ie=nets,nete
       kptr = 0
       call  edgeSpack(edgeMinMax,min_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
       kptr = qsize*nlev
       call  edgeSpack(edgeMinMax,max_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
    enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(edgeMinMax)
+#endif
    call t_startf('nmm_bexchS_start')
    call bndry_exchangeS_start(hybrid,edgeMinMax)
    call t_stopf('nmm_bexchS_start')
+#ifdef OPENACC_HOMME
+!$acc update device(edgeMinMax)
+#endif
 
 end subroutine neighbor_minmax_start
 subroutine neighbor_minmax_finish(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh)
@@ -510,23 +539,30 @@ subroutine neighbor_minmax_finish(hybrid,edgeMinMax,nets,nete,min_neigh,max_neig
 
    ! local 
    integer :: ie,q, k,kptr
-
+#ifdef OPENACC_HOMME
+!$acc update self(edgeMinMax)
+#endif
    call t_startf('nmm_bexchS_fini')
    call bndry_exchangeS_finish(hybrid,edgeMinMax)
    call t_stopf('nmm_bexchS_fini')
-
+#ifdef OPENACC_HOMME
+!$acc update device(edgeMinMax)
+!$acc parallel loop gang vector present(min_neigh,max_neigh,edgeMinMax) 
+#endif
    do ie=nets,nete
       kptr = 0
       call  edgeSunpackMIN(edgeMinMax,min_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
       kptr = qsize*nlev
       call  edgeSunpackMAX(edgeMinMax,max_neigh(:,:,ie),qsize*nlev,kptr,2*qsize*nlev,ie)
-      do q=1,qsize
-      do k=1,nlev
+      do q=1,qsize     
+        do k=1,nlev
           min_neigh(k,q,ie) = max(min_neigh(k,q,ie),0d0)
-      enddo
+        enddo
       enddo
    enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop 
+#endif
 end subroutine neighbor_minmax_finish
 
 subroutine smooth_phis(phis,elem,hybrid,deriv,nets,nete,minf,numcycle)
@@ -705,6 +741,9 @@ type (EdgeDescriptor_t), allocatable :: desc(:)
 integer :: ie,k,q
 
   if(present(kmass))then
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+#endif  
 !the check if kmass is a valid number is done in sweq_mod
     do k=1,nlev
       if(k.ne.kmass)then
@@ -714,9 +753,15 @@ integer :: ie,k,q
          enddo
       endif
     enddo
+#ifdef OPENACC_HOMME
+!$acc update device(elem)
+#endif     
   endif
 
     ! compute p min, max
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(min_neigh,max_neigh) 
+#endif    
     do ie=nets,nete
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k)
@@ -733,11 +778,17 @@ integer :: ie,k,q
        call edgeVpack(edge3,Qmin,nlev,nlev,ie)
        call edgeVpack(edge3,Qvar,nlev,2*nlev,ie)
     enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
     
     call t_startf('nmm_bexchV')
     call bndry_exchangeV(hybrid,edge3)
     call t_stopf('nmm_bexchV')
-       
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(3) present(min_neigh,max_neigh)
+#endif       
     do ie=nets,nete
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k)
@@ -796,6 +847,9 @@ integer :: ie,k,q
        enddo
        
     end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
 #ifdef DEBUGOMP
 #if (defined HORIZ_OPENMP)
@@ -804,6 +858,9 @@ integer :: ie,k,q
 #endif
 
   if(present(kmass))then
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+#endif   
     do k=1,nlev
        if(k.ne.kmass)then
           do ie=nets,nete
@@ -812,6 +869,9 @@ integer :: ie,k,q
           enddo
        endif
     enddo
+#ifdef OPENACC_HOMME
+!$acc update device(elem)
+#endif     
   endif
 end subroutine
 
