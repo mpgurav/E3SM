@@ -202,7 +202,7 @@ implicit none
   integer :: i,j,k,k2,ie
   ! hydrostatic pressure
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector firstprivate(n0,nlev,nlevp) private(i,j,k,k2,p_over_exner,pi,exner_i,pnh_i,dp3d_i,pi_i) present(elem,pnh,exner,dpnh_dp_i,hvcoord)   
+!$acc parallel loop gang vector private(p_over_exner,pi,exner_i,pnh_i,dp3d_i,pi_i) present(elem,pnh,exner,dpnh_dp_i,hvcoord)   
 #endif
   do ie=nets,nete   
     pi_i(:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
@@ -410,7 +410,9 @@ implicit none
     type (hvcoord_t)     , intent(in),  optional    :: hvcoord
 
     integer, intent(in) :: exact
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
     ! local
     real (kind=real_kind) :: alpha1(np,np),alpha2(np,np)
     real (kind=real_kind) :: e(np,np,nlev),phi_i_temp(np,np,nlevp),exner(np,np,nlev)
@@ -490,6 +492,88 @@ implicit none
   end subroutine get_dirk_jacobian
 
 
+  subroutine get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,nete) ! OpenACC implementation only for exact=1
+  !================================================================================
+  ! compute Jacobian of F(phi) = phi +const + (dt*g)^2 *(1-dp/dpi) column wise
+  ! with respect to phi_i 
+  !
+  ! This subroutine forms the tridiagonal analytic Jacobian (we actually form the diagonal, sub-, and super-diagonal)
+  ! J for use in a LApack tridiagonal LU factorization and solver to solve  J * x = -f either exactly or
+  ! approximately
+  !
+  !  input:  
+  !  exact jacobian:        phi_i, dp3d, pnh
+  !  matrix free jacobian:  phi_i, dp3d, vtheta_dp, hvcoord, dpnh_dp_i
+  !
+  ! epsie == 1 means exact Jacobian, epsie ~= 1 means finite difference approximate jacobian
+  ! exact,epsie,hvcoord,dpnh_dp,vtheta_dp,pnh,exner,exner_i are only needed as inputs
+  ! if epsie ~=1
+  !  
+  ! The rule-of-thumb optimal epsie  is epsie = norm(elem)*sqrt(macheps)
+  !===================================================================================
+    real (kind=real_kind), intent(out) :: JacD_ie(nelemd,nlev,np,np)
+    real (kind=real_kind), intent(out) :: JacL_ie(nelemd,nlev-1,np,np),JacU_ie(nelemd,nlev-1,np,np)
+    !real (kind=real_kind), intent(in)    :: dp3d(nelemd,np,np,nlev), phi_i(nelemd,np,np,nlevp)
+    type (element_t), intent(in) :: elem(nelemd)
+    real (kind=real_kind), intent(inout) :: pnh_ie(nelemd,np,np,nlev)
+    real (kind=real_kind), intent(in)    :: dt2
+    integer, intent(in)    :: np1,nets,nete
+
+    ! local
+    real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
+    !
+    !elem(ie)%state%dp3d(:,:,:,np1),elem(ie)%state%phinh_i(:,:,:,np1)
+    
+    integer :: k,l,ie
+    !if (exact.eq.1) then ! use exact Jacobian !! OpenACC implementation only for exact=1
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector create(dp3d_i_ie) present(elem,JacL_ie,JacD_ie,JacU_ie,pnh_ie)
+#endif     
+      do ie=nets,nete  
+        dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,np1)
+        dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,np1)
+        do k=2,nlev
+          dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,np1)+elem(ie)%state%dp3d(:,:,k-1,np1))/2
+        end do
+  
+        do k=1,nlev
+        ! this code will need to change when the equation of state is changed.
+        ! add special cases for k==1 and k==nlev+1
+          if (k==1) then
+
+            JacL_ie(ie,k,:,:) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
+             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k+1))
+
+            JacU_ie(ie,k,:,:) = -2*(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
+             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
+
+            JacD_ie(ie,k,:,:) = 1+2*(dt2*g)**2 *pnh_ie(ie,:,:,k)/&
+             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
+          
+          else if (k.eq.nlev) then 
+
+            JacD_ie(ie,k,:,:) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
+             +pnh_ie(ie,:,:,k-1)/( (elem(ie)%state%phinh_i(:,:,k-1,np1)-elem(ie)%state%phinh_i(:,:,k,np1))*(1-kappa)))/dp3d_i_ie(ie,:,:,k)
+
+          else ! k =2,...,nlev-1
+
+            JacL_ie(ie,k,:,:) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
+             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k+1))
+         
+            JacU_ie(ie,k,:,:) = -(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
+             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
+
+            JacD_ie(ie,k,:,:) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
+             +pnh_ie(ie,:,:,k-1)/( (elem(ie)%state%phinh_i(:,:,k-1,np1)-elem(ie)%state%phinh_i(:,:,k,np1))*(1-kappa)))/dp3d_i_ie(ie,:,:,k)
+
+          end if
+        end do
+      end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif      
+
+  end subroutine get_dirk_jacobian_openacc
 
 end module
 

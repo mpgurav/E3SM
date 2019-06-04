@@ -23,7 +23,7 @@ module prim_advance_mod
   use element_mod,        only: element_t
   use element_state,      only: max_itercnt_perstep,avg_itercnt,max_itererr_perstep, nu_scale_top
   use element_ops,        only: get_temperature, set_theta_ref, state0, get_R_star
-  use eos,                only: get_pnh_and_exner,get_theta_from_T,get_phinh,get_dirk_jacobian,get_pnh_and_exner_openacc
+  use eos,                only: get_pnh_and_exner,get_theta_from_T,get_phinh,get_dirk_jacobian,get_dirk_jacobian_openacc,get_pnh_and_exner_openacc
   use hybrid_mod,         only: hybrid_t
   use hybvcoord_mod,      only: hvcoord_t
   use kinds,              only: iulog, real_kind
@@ -1957,29 +1957,43 @@ contains
 
 
   ! local
-  real (kind=real_kind), pointer, dimension(:,:,:)   :: phi_np1
-  real (kind=real_kind), pointer, dimension(:,:,:)   :: dp3d
-  real (kind=real_kind), pointer, dimension(:,:,:)   :: vtheta_dp
-  real (kind=real_kind), pointer, dimension(:,:)   :: phis
-  real (kind=real_kind) :: JacD(nlev,np,np)  , JacL(nlev-1,np,np)
-  real (kind=real_kind) :: JacU(nlev-1,np,np), JacU2(nlev-2,np,np)
-  real (kind=real_kind) :: pnh(np,np,nlev)     ! nh (nonydro) pressure
-  real (kind=real_kind) :: dp3d_i(np,np,nlevp)
-  real (kind=real_kind) :: dpnh_dp_i(np,np,nlevp)
-  real (kind=real_kind) :: exner(np,np,nlev)     ! exner nh pressure
-  real (kind=real_kind) :: w_n0(np,np,nlevp)    
-  real (kind=real_kind) :: phi_n0(np,np,nlevp)    
-  real (kind=real_kind) :: Ipiv(nlev,np,np)
-  real (kind=real_kind) :: Fn(np,np,nlev),x(nlev,np,np)
-  real (kind=real_kind) :: itererr,itererrtemp(np,np)
+  !real (kind=real_kind), pointer, dimension(:,:,:)   :: phi_np1
+  !real (kind=real_kind), pointer, dimension(:,:,:)   :: dp3d
+  !real (kind=real_kind), pointer, dimension(:,:,:)   :: vtheta_dp
+  !real (kind=real_kind), pointer, dimension(:,:)   :: phis
+  !real (kind=real_kind) :: JacD(nlev,np,np)  , JacL(nlev-1,np,np)
+  !real (kind=real_kind) :: JacU(nlev-1,np,np), JacU2(nlev-2,np,np)
+  !real (kind=real_kind) :: pnh(np,np,nlev)     ! nh (nonydro) pressure
+  !real (kind=real_kind) :: dp3d_i(np,np,nlevp)
+  !real (kind=real_kind) :: dpnh_dp_i(np,np,nlevp)
+  !real (kind=real_kind) :: exner(np,np,nlev)     ! exner nh pressure
+  !real (kind=real_kind) :: w_n0(np,np,nlevp)    
+  !real (kind=real_kind) :: phi_n0(np,np,nlevp)    
+  !real (kind=real_kind) :: Ipiv(nlev,np,np)
+  !real (kind=real_kind) :: Fn(np,np,nlev),x(nlev,np,np)
+  !real (kind=real_kind) :: itererrtemp(np,np)
   real (kind=real_kind) :: itercountmax,itererrmax
-  real (kind=real_kind) :: norminfr0(np,np),norminfJ0(np,np)
+  !real (kind=real_kind) :: norminfr0(np,np),norminfJ0(np,np)
   real (kind=real_kind) :: maxnorminfJ0r0
   real (kind=real_kind) :: alpha1(np,np),alpha2(np,np)
 
-  real (kind=real_kind) :: Jac2D(nlev,np,np)  , Jac2L(nlev-1,np,np)
-  real (kind=real_kind) :: Jac2U(nlev-1,np,np)
+  !real (kind=real_kind) :: Jac2D(nlev,np,np)  , Jac2L(nlev-1,np,np)
+  !real (kind=real_kind) :: Jac2U(nlev-1,np,np)
 
+  real (kind=real_kind) :: JacD_ie(nelemd,nlev,np,np)  , JacL_ie(nelemd,nlev-1,np,np)
+  real (kind=real_kind) :: JacU_ie(nelemd,nlev-1,np,np), JacU2_ie(nelemd,nlev-2,np,np)
+  !real (kind=real_kind) :: dp3d_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: w_n0_ie(nelemd,np,np,nlevp)    
+  real (kind=real_kind) :: phi_n0_ie(nelemd,np,np,nlevp) 
+  real (kind=real_kind) :: pnh_ie(nelemd,np,np,nlev)     ! nh (nonydro) pressure
+  real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: dpnh_dp_i_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)     ! exner nh pressure    
+  real (kind=real_kind) :: Ipiv_ie(nelemd,nlev,np,np)
+  real (kind=real_kind) :: Fn_ie(nelemd,np,np,nlev),x_ie(nelemd,nlev,np,np)
+  real (kind=real_kind) :: itererr_ie(nelemd)
+  real (kind=real_kind) :: norminfr0_ie(nelemd,np,np),norminfJ0_ie(nelemd,np,np)
+  real (kind=real_kind) :: itererrtemp_ie(nelemd,np,np)
 
 
   integer :: i,j,k,l,ie,itercount,info(np,np)
@@ -1987,72 +2001,97 @@ contains
   itererrmax=0.d0
 
   call t_startf('compute_stage_value_dirk')
-  do ie=nets,nete
-    w_n0 = elem(ie)%state%w_i(:,:,:,np1)
-    phi_n0 = elem(ie)%state%phinh_i(:,:,:,np1)
-    itercount=0
 
-    ! approximate the initial error of f(x) \approx 0
-    dp3d  => elem(ie)%state%dp3d(:,:,:,np1)
-    vtheta_dp  => elem(ie)%state%vtheta_dp(:,:,:,np1)
-    phi_np1 => elem(ie)%state%phinh_i(:,:,:,np1)
-    phis => elem(ie)%state%phis(:,:)
+#ifdef OPENACC_HOMME
+!$acc enter data copyin(hvcoord,elem) 
+!$acc enter data create(pnh_ie,exner_ie,dpnh_dp_i_ie,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
+!$acc enter data create(w_n0_ie,phi_n0_ie,itererrtemp_ie)
+#endif   
 
-    call get_pnh_and_exner(hvcoord,vtheta_dp,dp3d,phi_np1,pnh,exner,dpnh_dp_i)
+call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,nets,nete,nlev)
 
-    dp3d_i(:,:,1) = dp3d(:,:,1)
-    dp3d_i(:,:,nlevp) = dp3d(:,:,nlev)
+#ifdef OPENACC_HOMME
+!$acc update self(pnh_ie,exner_ie,dpnh_dp_i_ie)
+#endif   
+  
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,dp3d_i_ie,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
+#endif  
+  do ie=nets,nete 
+    !itercount=0 
+    w_n0_ie(ie,:,:,:) = elem(ie)%state%w_i(:,:,:,np1)
+    phi_n0_ie(ie,:,:,:) = elem(ie)%state%phinh_i(:,:,:,np1)
+    dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,np1)
+    dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,np1)
     do k=2,nlev
-       dp3d_i(:,:,k)=(dp3d(:,:,k)+dp3d(:,:,k-1))/2
+       dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,np1)+elem(ie)%state%dp3d(:,:,k-1,np1))/2
     end do
 
    ! we first compute the initial Jacobian J0 and residual r0 and their infinity norms
-     Fn(:,:,1:nlev) = phi_np1(:,:,1:nlev)-phi_n0(:,:,1:nlev) &
-       - dt2*g*w_n0(:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i(:,:,1:nlev))
+     Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
+       - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
 
-     norminfr0=0.d0
-     norminfJ0=0.d0
-      ! Here's how to call inexact Jacobian
-!     call get_dirk_jacobian(Jac2L,Jac2D,Jac2U,dt2,dp3d,phi_np1,pnh,0,&
-!       1d-6,hvcoord,dpnh_dp_i,vtheta_dp)
-      ! here's the call to the exact Jacobian
-     call get_dirk_jacobian(JacL,JacD,JacU,dt2,dp3d,phi_np1,pnh,1)
+  end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif   
 
+
+call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,nete) ! OpenACC implementation only for exact=1
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie,itererrtemp_ie) create(norminfr0_ie,norminfJ0_ie)
+#endif  
+  do ie=nets,nete 
+     !itercount=0   
+     norminfr0_ie(ie,:,:)=0.d0
+     norminfJ0_ie(ie,:,:)=0.d0
     ! compute dp3d-weighted infinity norms of the initial Jacobian and residual
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(i,j) collapse(2)
 #endif
      do i=1,np
      do j=1,np
-       itererrtemp(i,j)=0 
+       itererrtemp_ie(ie,i,j)=0 
        do k=1,nlev
-        norminfr0(i,j)=max(norminfr0(i,j),abs(Fn(i,j,k)) *dp3d_i(i,j,k))
+        norminfr0_ie(ie,i,j)=max(norminfr0_ie(ie,i,j),abs(Fn_ie(ie,i,j,k)) *dp3d_i_ie(ie,i,j,k))
         if (k.eq.1) then
-          norminfJ0(i,j) = max(norminfJ0(i,j),(dp3d_i(i,j,k)*abs(JacD(k,i,j))+dp3d_i(i,j,k+1))*abs(JacU(k,i,j)))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(ie,k,i,j))+dp3d_i_ie(ie,i,j,k+1))*abs(JacU_ie(ie,k,i,j)))
         elseif (k.eq.nlev) then
-          norminfJ0(i,j) = max(norminfJ0(i,j),(dp3d_i(i,j,k-1)*abs(JacL(k,i,j))+abs(JacD(k,i,j))*dp3d(i,j,k)))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(ie,k,i,j))+abs(JacD_ie(ie,k,i,j))*elem(ie)%state%dp3d(i,j,k,np1)))
         else
-          norminfJ0(i,j) = max(norminfJ0(i,j),(dp3d_i(i,j,k-1)*abs(JacL(k,i,j))+dp3d_i(i,j,k)*abs(JacD(k,i,j))+ &
-            dp3d_i(i,j,k+1)*abs(JacU(k,i,j))))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(ie,k,i,j))+dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(ie,k,i,j))+ &
+            dp3d_i_ie(ie,i,j,k+1)*abs(JacU_ie(ie,k,i,j))))
         end if
-        itererrtemp(i,j)=itererrtemp(i,j)+Fn(i,j,k)**2.d0 *dp3d_i(i,j,k)
+        itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(ie,i,j,k)**2.d0 *dp3d_i_ie(ie,i,j,k)
       end do
-      itererrtemp(i,j)=sqrt(itererrtemp(i,j))
+      itererrtemp_ie(ie,i,j)=sqrt(itererrtemp_ie(ie,i,j))
     end do
     end do
 
-    maxnorminfJ0r0=max(maxval(norminfJ0(:,:)),maxval(norminfr0(:,:)))
-    itererr=maxval(itererrtemp(:,:))/maxnorminfJ0r0
+    maxnorminfJ0r0=max(maxval(norminfJ0_ie(ie,:,:)),maxval(norminfr0_ie(ie,:,:)))
+    itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0
 
-
-    do while ((itercount < maxiter).and.(itererr > itertol))
+  end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
+!$acc update self(w_n0_ie,phi_n0_ie,itererrtemp_ie)
+!$acc exit data delete(pnh_ie,exner_ie,dpnh_dp_i_ie,w_n0_ie,phi_n0_ie)
+!$acc exit data delete(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,fn_ie,itererr_ie)
+#endif   
+  
+  do ie=nets,nete 
+     itercount=0
+    do while ((itercount < maxiter).and.(itererr_ie(ie) > itertol))
 
       info(:,:) = 0
       ! Here's how to call inexact Jacobian
 !      call get_dirk_jacobian(JacL,JacD,JacU,dt2,dp3d,phi_np1,pnh,0,&
 !       1d-4,hvcoord,dpnh_dp_i,vtheta_dp)
       ! here's the call to the exact Jacobian
-       call get_dirk_jacobian(JacL,JacD,JacU,dt2,dp3d,phi_np1,pnh,1)
+       call get_dirk_jacobian(JacL_ie(ie,:,:,:),JacD_ie(ie,:,:,:),JacU_ie(ie,:,:,:),dt2,elem(ie)%state%dp3d(:,:,:,np1),elem(ie)%state%phinh_i(:,:,:,np1),pnh_ie(ie,:,:,:),1)
 
  
 #if (defined COLUMN_OPENMP)
@@ -2060,38 +2099,38 @@ contains
 #endif
       do i=1,np
       do j=1,np
-        x(1:nlev,i,j) = -Fn(i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
-        call DGTTRF(nlev, JacL(:,i,j), JacD(:,i,j),JacU(:,i,j),JacU2(:,i,j), Ipiv(:,i,j), info(i,j) )
+        x_ie(ie,1:nlev,i,j) = -Fn_ie(ie,i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
+        call DGTTRF(nlev, JacL_ie(ie,:,i,j), JacD_ie(ie,:,i,j),JacU_ie(ie,:,i,j),JacU2_ie(ie,:,i,j), Ipiv_ie(ie,:,i,j), info(i,j) )
         ! Tridiagonal solve
-        call DGTTRS( 'N', nlev,1, JacL(:,i,j), JacD(:,i,j), JacU(:,i,j), JacU2(:,i,j), Ipiv(:,i,j),x(:,i,j), nlev, info(i,j) )
+        call DGTTRS( 'N', nlev,1, JacL_ie(ie,:,i,j), JacD_ie(ie,:,i,j), JacU_ie(ie,:,i,j), JacU2_ie(ie,:,i,j), Ipiv_ie(ie,:,i,j),x_ie(ie,:,i,j), nlev, info(i,j) )
         ! update approximate solution of phi
-        phi_np1(i,j,1:nlev) = phi_np1(i,j,1:nlev) + x(1:nlev,i,j)
+        elem(ie)%state%phinh_i(i,j,1:nlev,np1) = elem(ie)%state%phinh_i(i,j,1:nlev,np1) + x_ie(ie,1:nlev,i,j)
       end do
       end do
 
-      call get_pnh_and_exner(hvcoord,vtheta_dp,dp3d,phi_np1,pnh,exner,dpnh_dp_i)
+      call get_pnh_and_exner(hvcoord,elem(ie)%state%vtheta_dp(:,:,:,np1),elem(ie)%state%dp3d(:,:,:,np1),elem(ie)%state%phinh_i(:,:,:,np1),pnh_ie(ie,:,:,:),exner_ie(ie,:,:,:),dpnh_dp_i_ie(ie,:,:,:))
 
       ! update approximate solution of w
-      elem(ie)%state%w_i(:,:,1:nlev,np1) = w_n0(:,:,1:nlev) - g*dt2 * &
-        (1.0-dpnh_dp_i(:,:,1:nlev))
+      elem(ie)%state%w_i(:,:,1:nlev,np1) = w_n0_ie(ie,:,:,1:nlev) - g*dt2 * &
+        (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
       ! update right-hand side of phi
-      Fn(:,:,1:nlev) = phi_np1(:,:,1:nlev)-phi_n0(:,:,1:nlev) &
-        - dt2*g*w_n0(:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i(:,:,1:nlev))
+      Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
+        - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
 
       ! compute relative errors
-      itererrtemp=0.d0
+      itererrtemp_ie(ie,:,:)=0.d0
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(i,j) collapse(2)
 #endif
       do i=1,np
       do j=1,np
         do k=1,nlev
-          itererrtemp(i,j)=itererrtemp(i,j)+Fn(i,j,k)**2.d0 *dp3d_i(i,j,k)
+          itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(ie,i,j,k)**2.d0 *dp3d_i_ie(ie,i,j,k)
         end do
-        itererrtemp(i,j)=sqrt(itererrtemp(i,j))
+        itererrtemp_ie(ie,i,j)=sqrt(itererrtemp_ie(ie,i,j))
       end do
       end do
-      itererr=maxval(itererrtemp(:,:))/maxnorminfJ0r0
+      itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0
 
       ! update iteration count and error measure
       itercount=itercount+1
@@ -2106,9 +2145,9 @@ contains
 !      end if
   end do ! end do for the ie=nets,nete loop
   maxiter=itercount
-  itertol=itererr
-!  print *, 'max itercount', itercountmax, 'maxitererr ', itererrmax
-
+  itertol=maxval(itererr_ie(:))
+  !print *, 'max itercount', itercountmax, 'maxitererr ', itererrmax
+  !print *, 'itertol', itertol, 'maxiter ', maxiter	  	  
   call t_stopf('compute_stage_value_dirk')
 
   end subroutine compute_stage_value_dirk
