@@ -91,9 +91,9 @@ private
   public  :: element_boundary_integral
   public  :: edge_flux_u_cg
   public  :: limiter_optim_iter_full
-  PUBLIC limiter_optim_iter_full_openacc 
-  PUBLIC limiter_clip_and_sum 
-  PUBLIC limiter_clip_and_sum_openacc 
+  PUBLIC  :: limiter_optim_iter_full_openacc 
+  PUBLIC  :: limiter_clip_and_sum 
+  PUBLIC  :: limiter_clip_and_sum_openacc 
 
 contains
 

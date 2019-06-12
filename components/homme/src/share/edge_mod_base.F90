@@ -1121,7 +1121,7 @@ endif
     real (kind=real_kind), intent(inout) :: v(np,np,vlyr)
     type (EdgeDescriptor_t)  :: desc
 #ifdef OPENACC_HOMME
-  !$acc routine seq 
+  !$acc routine vector 
 #endif
 !$dir assume_aligned v:64
     integer,               intent(in)  :: kptr

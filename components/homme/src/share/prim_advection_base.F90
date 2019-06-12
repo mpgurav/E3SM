@@ -647,7 +647,7 @@ OMP_SIMD
   call t_stopf('eus_bexchV')
 #ifdef OPENACC_HOMME
 !$acc update device(edge_g)
-!$acc parallel loop gang vector present(elem,edge_g)
+!$acc parallel loop gang present(elem,edge_g)
 #endif
   do ie = nets , nete
     !if ( DSSopt == DSSeta         ) DSSvar => elem(ie)%derived%eta_dot_dpdn(:,:,:)
@@ -680,7 +680,7 @@ OMP_SIMD
 #endif 
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,edge_g)
+!$acc parallel loop gang present(elem,edge_g)
 #endif
   do ie = nets , nete      
 #if (defined COLUMN_OPENMP)

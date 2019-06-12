@@ -97,13 +97,16 @@ logical var_coef1
 
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) private(lap_p) present(elem,qtens,edgeq,deriv)
+!$acc parallel loop gang collapse(2) private(lap_p) present(elem,qtens,edgeq,deriv)
 #endif
    do ie=nets,nete
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k, q, lap_p)
 #endif
-      do q=1,qsize      
+      do q=1,qsize   
+#ifdef OPENACC_HOMME
+!$acc loop vector
+#endif            
          do k=1,nlev    !  Potential loop inversion (AAM)
             lap_p(:,:)=qtens(:,:,k,q,ie)
 ! Original use of qtens on left and right hand sides caused OpenMP errors (AAM)
@@ -120,7 +123,7 @@ logical var_coef1
    call t_stopf('biwksc_bexchV')
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) private(lap_p) present(qtens,elem,edgeq,deriv)
+!$acc parallel loop gang collapse(2) private(lap_p) present(qtens,elem,edgeq,deriv)
 #endif   
    do ie=nets,nete
       ! apply inverse mass matrix, then apply laplace again
@@ -129,6 +132,9 @@ logical var_coef1
 #endif
       do q=1,qsize      
         call edgeVunpack_nlyr(edgeq,elem(ie)%desc,qtens(:,:,:,q,ie),nlev,nlev*(q-1),qsize*nlev)
+#ifdef OPENACC_HOMME
+!$acc loop vector
+#endif        
         do k=1,nlev    !  Potential loop inversion (AAM)
            lap_p(:,:)=elem(ie)%rspheremp(:,:)*qtens(:,:,k,q,ie)
            qtens(:,:,k,q,ie)=laplace_sphere_wk(lap_p,deriv,elem(ie),var_coef=.true.)

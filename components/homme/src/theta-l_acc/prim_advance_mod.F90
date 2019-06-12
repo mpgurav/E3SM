@@ -305,6 +305,9 @@ contains
       ahat2 = ( - ahat3*ahat4*ahat5*dhat1 + ahat4*ahat5*dhat1*dhat2 -&
         ahat5*dhat1*dhat2*dhat3 + dhat1*dhat2*dhat3*dhat4)/(-ahat3*ahat4*ahat5)
 
+#ifdef OPENACC_HOMME
+!$acc update device(elem) 
+#endif
 
       call compute_andor_apply_rhs(np1,n0,n0,qn0,a1*dt,elem,hvcoord,hybrid,&
         deriv,nets,nete,compute_diagnostics,0d0,1d0,0d0,1d0)
@@ -352,6 +355,10 @@ contains
 
       call compute_andor_apply_rhs(np1,n0,np1,qn0,a5*dt,elem,hvcoord,hybrid,&
         deriv,nets,nete,compute_diagnostics,eta_ave_w,1d0,ahat5/a5,1d0)
+
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+#endif 
 
       avg_itercnt = ((nstep)*avg_itercnt + max_itercnt_perstep)/(nstep+1)
 
@@ -1106,7 +1113,7 @@ contains
   
    
 #ifdef OPENACC_HOMME
-!$acc update device(elem) 
+!!$acc update device(elem) 
 !$acc update device(edge_g)
 !$acc enter data create(vtheta_ie, vtheta_i_ie, omega_i_ie, omega_ie, vort_ie, divdp_ie, phi_ie, pnh_ie)
 !$acc enter data create(dp3d_i_ie, exner_ie, dpnh_dp_i_ie, eta_dot_dpdn_ie, KE_ie, gradexner_ie)
@@ -1798,7 +1805,7 @@ contains
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(kptr) present(elem,edge_g) 
+!$acc parallel loop gang private(kptr) present(elem,edge_g) 
 #endif     
   do ie=nets,nete !nete          
      kptr=0
@@ -1839,7 +1846,7 @@ contains
 
 #ifdef OPENACC_HOMME
 !$acc update device(edge_g)
-!$acc parallel loop gang vector private(kptr) present(elem,edge_g) 
+!$acc parallel loop gang private(kptr) present(elem,edge_g) 
 #endif   
   do ie=nets,nete
      kptr=0
@@ -1919,7 +1926,7 @@ contains
   end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc update self(elem)
+!!$acc update self(elem)
 !$acc exit data delete(dpnh_dp_i_ie)
 #endif  
   call t_stopf('compute_andor_apply_rhs')
@@ -1961,8 +1968,9 @@ contains
   !real (kind=real_kind), pointer, dimension(:,:,:)   :: dp3d
   !real (kind=real_kind), pointer, dimension(:,:,:)   :: vtheta_dp
   !real (kind=real_kind), pointer, dimension(:,:)   :: phis
-  !real (kind=real_kind) :: JacD(nlev,np,np)  , JacL(nlev-1,np,np)
-  !real (kind=real_kind) :: JacU(nlev-1,np,np), JacU2(nlev-2,np,np)
+  real (kind=real_kind) :: JacD(nlev,np,np)  , JacL(nlev-1,np,np)
+  real (kind=real_kind) :: JacU(nlev-1,np,np), JacU2(nlev-2,np,np)
+  real (kind=real_kind) :: Ipiv(nlev,np,np)
   !real (kind=real_kind) :: pnh(np,np,nlev)     ! nh (nonydro) pressure
   !real (kind=real_kind) :: dp3d_i(np,np,nlevp)
   !real (kind=real_kind) :: dpnh_dp_i(np,np,nlevp)
@@ -1974,7 +1982,7 @@ contains
   !real (kind=real_kind) :: itererrtemp(np,np)
   real (kind=real_kind) :: itercountmax,itererrmax
   !real (kind=real_kind) :: norminfr0(np,np),norminfJ0(np,np)
-  real (kind=real_kind) :: maxnorminfJ0r0
+  !real (kind=real_kind) :: maxnorminfJ0r0
   real (kind=real_kind) :: alpha1(np,np),alpha2(np,np)
 
   !real (kind=real_kind) :: Jac2D(nlev,np,np)  , Jac2L(nlev-1,np,np)
@@ -1994,6 +2002,7 @@ contains
   real (kind=real_kind) :: itererr_ie(nelemd)
   real (kind=real_kind) :: norminfr0_ie(nelemd,np,np),norminfJ0_ie(nelemd,np,np)
   real (kind=real_kind) :: itererrtemp_ie(nelemd,np,np)
+  real (kind=real_kind) :: maxnorminfJ0r0_ie(nelemd)
 
 
   integer :: i,j,k,l,ie,itercount,info(np,np)
@@ -2003,9 +2012,9 @@ contains
   call t_startf('compute_stage_value_dirk')
 
 #ifdef OPENACC_HOMME
-!$acc enter data copyin(hvcoord,elem) 
+!$acc update device(hvcoord)
 !$acc enter data create(pnh_ie,exner_ie,dpnh_dp_i_ie,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
-!$acc enter data create(w_n0_ie,phi_n0_ie,itererrtemp_ie)
+!$acc enter data create(w_n0_ie,phi_n0_ie,itererrtemp_ie,x_ie,maxnorminfJ0r0_ie)
 #endif   
 
 call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,nets,nete,nlev)
@@ -2041,7 +2050,7 @@ call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,net
 call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,nete) ! OpenACC implementation only for exact=1
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie,itererrtemp_ie) create(norminfr0_ie,norminfJ0_ie)
+!$acc parallel loop gang vector present(elem,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie,itererrtemp_ie,maxnorminfJ0r0_ie) create(norminfr0_ie,norminfJ0_ie)
 #endif  
   do ie=nets,nete 
      !itercount=0   
@@ -2049,7 +2058,7 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
      norminfJ0_ie(ie,:,:)=0.d0
     ! compute dp3d-weighted infinity norms of the initial Jacobian and residual
 #if (defined COLUMN_OPENMP)
-!$omp parallel do private(i,j) collapse(2)
+!$omp parallel do private(i,j) collapse(2) 
 #endif
      do i=1,np
      do j=1,np
@@ -2070,58 +2079,103 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
     end do
     end do
 
-    maxnorminfJ0r0=max(maxval(norminfJ0_ie(ie,:,:)),maxval(norminfr0_ie(ie,:,:)))
-    itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0
+    maxnorminfJ0r0_ie(ie)=max(maxval(norminfJ0_ie(ie,:,:)),maxval(norminfr0_ie(ie,:,:)))
+    itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0_ie(ie)
 
   end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 !$acc update self(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
 !$acc update self(w_n0_ie,phi_n0_ie,itererrtemp_ie)
-!$acc exit data delete(pnh_ie,exner_ie,dpnh_dp_i_ie,w_n0_ie,phi_n0_ie)
-!$acc exit data delete(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,fn_ie,itererr_ie)
+!$acc update self(maxnorminfJ0r0_ie) 
 #endif   
   
-  do ie=nets,nete 
+  
      itercount=0
-    do while ((itercount < maxiter).and.(itererr_ie(ie) > itertol))
-
-      info(:,:) = 0
+    do while ((itercount < maxiter).and.(maxval(itererr_ie(:)) > itertol))
+      
+      
       ! Here's how to call inexact Jacobian
 !      call get_dirk_jacobian(JacL,JacD,JacU,dt2,dp3d,phi_np1,pnh,0,&
 !       1d-4,hvcoord,dpnh_dp_i,vtheta_dp)
       ! here's the call to the exact Jacobian
-       call get_dirk_jacobian(JacL_ie(ie,:,:,:),JacD_ie(ie,:,:,:),JacU_ie(ie,:,:,:),dt2,elem(ie)%state%dp3d(:,:,:,np1),elem(ie)%state%phinh_i(:,:,:,np1),pnh_ie(ie,:,:,:),1)
+      
+#ifdef OPENACC_HOMME
+#endif      
+      call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,nete) ! OpenACC implementation only for exact=1
+#ifdef OPENACC_HOMME
+!$acc update self(JacU_ie,JacL_ie,JacD_ie)
+#endif  
 
- 
-#if (defined COLUMN_OPENMP)
-!$omp parallel do private(i,j) collapse(2)
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(3) present(x_ie,Fn_ie)
+#endif       
+      do ie=nets,nete
+        do i=1,np
+          do j=1,np
+            x_ie(ie,1:nlev,i,j) = -Fn_ie(ie,i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
+          end do
+        end do
+      end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(x_ie)
+#endif    
+           
+      do ie=nets,nete
+       info(:,:) = 0 
+       JacL = JacL_ie(ie,:,:,:)       
+       JacD = JacD_ie(ie,:,:,:)
+       JacU = JacU_ie(ie,:,:,:)
+       JacU2 = JacU2_ie(ie,:,:,:)
+       do i=1,np
+         do j=1,np        
+           call DGTTRF(nlev, JacL(:,i,j), JacD(:,i,j),JacU(:,i,j),JacU2(:,i,j), Ipiv(:,i,j), info(i,j) )
+           ! Tridiagonal solve
+           call DGTTRS( 'N', nlev,1, JacL(:,i,j), JacD(:,i,j), JacU(:,i,j), JacU2(:,i,j), Ipiv(:,i,j),x_ie(ie,:,i,j), nlev, info(i,j) )
+         end do
+       end do
+     end do ! end do for the ie=nets,nete loop
+   
+#ifdef OPENACC_HOMME
+!$acc update device(x_ie)
+!$acc parallel loop gang vector collapse(3) present(elem,x_ie)
+#endif        
+      do ie=nets,nete
+        do i=1,np
+          do j=1,np
+            ! update approximate solution of phi
+            elem(ie)%state%phinh_i(i,j,1:nlev,np1) = elem(ie)%state%phinh_i(i,j,1:nlev,np1) + x_ie(ie,1:nlev,i,j)
+          end do
+        end do
+      end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
 #endif
-      do i=1,np
-      do j=1,np
-        x_ie(ie,1:nlev,i,j) = -Fn_ie(ie,i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
-        call DGTTRF(nlev, JacL_ie(ie,:,i,j), JacD_ie(ie,:,i,j),JacU_ie(ie,:,i,j),JacU2_ie(ie,:,i,j), Ipiv_ie(ie,:,i,j), info(i,j) )
-        ! Tridiagonal solve
-        call DGTTRS( 'N', nlev,1, JacL_ie(ie,:,i,j), JacD_ie(ie,:,i,j), JacU_ie(ie,:,i,j), JacU2_ie(ie,:,i,j), Ipiv_ie(ie,:,i,j),x_ie(ie,:,i,j), nlev, info(i,j) )
-        ! update approximate solution of phi
-        elem(ie)%state%phinh_i(i,j,1:nlev,np1) = elem(ie)%state%phinh_i(i,j,1:nlev,np1) + x_ie(ie,1:nlev,i,j)
-      end do
-      end do
 
-      call get_pnh_and_exner(hvcoord,elem(ie)%state%vtheta_dp(:,:,:,np1),elem(ie)%state%dp3d(:,:,:,np1),elem(ie)%state%phinh_i(:,:,:,np1),pnh_ie(ie,:,:,:),exner_ie(ie,:,:,:),dpnh_dp_i_ie(ie,:,:,:))
+      call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,nets,nete,nlev)
 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
+#endif 
+    do ie=nets,nete
       ! update approximate solution of w
       elem(ie)%state%w_i(:,:,1:nlev,np1) = w_n0_ie(ie,:,:,1:nlev) - g*dt2 * &
         (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
       ! update right-hand side of phi
       Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
         - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
-
+    end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif    
+   
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(i,j,k) present(itererrtemp_ie,dp3d_i_ie,Fn_ie,itererr_ie)
+#endif     
+    do ie=nets,nete
       ! compute relative errors
       itererrtemp_ie(ie,:,:)=0.d0
-#if (defined COLUMN_OPENMP)
-!$omp parallel do private(i,j) collapse(2)
-#endif
       do i=1,np
       do j=1,np
         do k=1,nlev
@@ -2130,11 +2184,18 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
         itererrtemp_ie(ie,i,j)=sqrt(itererrtemp_ie(ie,i,j))
       end do
       end do
-      itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0
-
+      itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0_ie(ie)      
+    end do ! end do for the ie=nets,nete loop
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(itererr_ie)
+#endif    
+    
       ! update iteration count and error measure
       itercount=itercount+1
+      
     end do ! end do for the do while loop
+    
 !  the following two if-statements are for debugging/testing purposes to track the number of iterations and error attained
 !  by the Newton iteration
 !      if (itercount > itercountmax) then
@@ -2143,13 +2204,14 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
 !      if (itererr > itererrmax) then
 !        itererrmax = itererr
 !      end if
-  end do ! end do for the ie=nets,nete loop
   maxiter=itercount
   itertol=maxval(itererr_ie(:))
   !print *, 'max itercount', itercountmax, 'maxitererr ', itererrmax
-  !print *, 'itertol', itertol, 'maxiter ', maxiter	  	  
   call t_stopf('compute_stage_value_dirk')
-
+#ifdef OPENACC_HOMME
+!$acc exit data delete(pnh_ie,exner_ie,dpnh_dp_i_ie,w_n0_ie,phi_n0_ie,x_ie)
+!$acc exit data delete(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,fn_ie,itererr_ie,maxnorminfJ0r0_ie)
+#endif 
   end subroutine compute_stage_value_dirk
 
 
