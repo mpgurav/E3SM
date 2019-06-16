@@ -521,7 +521,7 @@ OMP_SIMD
   enddo ! ie loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc parallel loop gang vector present(elem,edge_g) 
+!$acc parallel loop gang present(elem,edge_g) 
 #endif  
   do ie = nets , nete
     if ( DSSopt == DSSeta         ) then
@@ -622,7 +622,7 @@ OMP_SIMD
     
 !#if 0      
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,edge_g)
+!$acc parallel loop gang collapse(2) present(elem,edge_g)
 #endif
   do ie = nets , nete
      ! advance Qdp

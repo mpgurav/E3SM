@@ -518,7 +518,7 @@ endif
 
     integer :: is,ie,in,iw
 #ifdef OPENACC_HOMME
-  !$acc routine seq 
+  !$acc routine vector 
 #endif
 #ifndef OPENACC_HOMME
     if (edge%nlyr_max < (kptr+vlyr) ) then
@@ -540,6 +540,9 @@ endif
 !dir$ ivdep
     do k=1,vlyr
        iptr = np*(kptr+k-1)
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
        do i=1,np
           edge%buf(iptr+is+i)   = v(i  ,1 ,k) ! South
           edge%buf(iptr+in+i)   = v(i  ,np,k) ! North
@@ -554,6 +557,9 @@ endif
 !dir$ ivdep
        do k=1,vlyr
           iptr = np*(kptr+k-1)+is
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif          
           do i=1,np
              edge%buf(iptr+np-i+1)=v(i,1,k)
           enddo
@@ -564,6 +570,9 @@ endif
 !dir$ ivdep
        do k=1,vlyr
           iptr=np*(kptr+k-1)+ie
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif          
           do i=1,np
              edge%buf(iptr+np-i+1)=v(np,i,k)
           enddo
@@ -574,6 +583,9 @@ endif
 !dir$ ivdep
        do k=1,vlyr
           iptr=np*(kptr+k-1)+in
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif          
           do i=1,np
              edge%buf(iptr+np-i+1)=v(i,np,k)
           enddo
@@ -584,6 +596,9 @@ endif
 !dir$ ivdep
        do k=1,vlyr
           iptr=np*(kptr+k-1)+iw
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif          
           do i=1,np
              edge%buf(iptr+np-i+1)=v(1,i,k)
           enddo
@@ -595,6 +610,9 @@ endif
         llval=desc%putmapP(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(1  ,1 ,k)
             end do
@@ -606,6 +624,9 @@ endif
         llval=desc%putmapP(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(np ,1 ,k)
             end do
@@ -617,6 +638,9 @@ endif
         llval=desc%putmapP(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(np ,np,k)
             end do
@@ -628,6 +652,9 @@ endif
         llval=desc%putmapP(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(1  ,np,k)
             end do
@@ -1144,6 +1171,9 @@ endif
 !dir$ ivdep
     do k=1,vlyr
        iptr=np*(kptr+k-1)
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif       
        do i=1,np
           v(i  ,1  ,k) = v(i  ,1  ,k)+edge%receive(iptr+is+i) ! South
           v(i  ,np ,k) = v(i  ,np ,k)+edge%receive(iptr+in+i) ! North
@@ -1157,6 +1187,9 @@ endif
         getmapL = desc%getmapP(ll)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(1  ,1 ,k)=v(1 ,1 ,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
             enddo
@@ -1168,6 +1201,9 @@ endif
         getmapL = desc%getmapP(ll)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(np ,1 ,k)=v(np,1 ,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
             enddo
@@ -1179,6 +1215,9 @@ endif
         getmapL = desc%getmapP(ll)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(np ,np,k)=v(np,np,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
             enddo
@@ -1190,6 +1229,9 @@ endif
         getmapL = desc%getmapP(ll)
         if(getmapL /= -1) then 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 v(1  ,np,k)=v(1 ,np,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
             enddo
