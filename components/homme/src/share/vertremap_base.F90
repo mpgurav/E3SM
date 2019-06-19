@@ -29,7 +29,7 @@ module vertremap_base
   !**************************************************************************************
 
   use kinds, only                  : real_kind,int_kind
-  use dimensions_mod, only         : np,nlev,qsize,nlevp,npsq
+  use dimensions_mod, only         : np,nlev,qsize,nlevp,npsq,nelemd
   use hybvcoord_mod, only          : hvcoord_t
   use perf_mod, only               : t_startf, t_stopf  ! _EXTERNAL
   use parallel_mod, only           : abortmp, parallel_t
@@ -84,6 +84,9 @@ subroutine remap1(Qdp,nx,qsize,dp1,dp2)
   ! output: remaped Qdp, conserving mass, monotone on Q=Qdp/dp
   !
   implicit none
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif
   integer, intent(in) :: nx,qsize
   real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,qsize)
   real (kind=real_kind), intent(in) :: dp1(nx,nx,nlev),dp2(nx,nx,nlev)
@@ -109,7 +112,7 @@ subroutine remap1(Qdp,nx,qsize,dp1,dp2)
      return
   endif
 
-  call t_startf('remap_Q_noppm')
+  !call t_startf('remap_Q_noppm')
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(q,i,j,z1c,z2c,zv,k,dp_np1,dp_star,Qcol,zkr,ilev) &
 !$omp    private(jk,zgam,zhdp,h,zarg,rhs,lower_diag,diag,upper_diag,q_diag,tmp_cal,filter_code) &
@@ -132,7 +135,7 @@ subroutine remap1(Qdp,nx,qsize,dp1,dp2)
         Qcol(k)=Qdp(i,j,k,q)!  *(z1c(k+1)-z1c(k)) input is mass
         zv(k+1) = zv(k)+Qcol(k)
       enddo
-
+#ifndef OPENACC_HOMME
       if (ABS(z2c(nlev+1)-z1c(nlev+1)).GE.0.000001) then
         write(6,*) 'SURFACE PRESSURE IMPLIED BY ADVECTION SCHEME'
         write(6,*) 'NOT CORRESPONDING TO SURFACE PRESSURE IN    '
@@ -142,7 +145,7 @@ subroutine remap1(Qdp,nx,qsize,dp1,dp2)
         write(6,*) 'DIFF     =',z2c(nlev+1)-z1c(nlev+1)
         abort=.true.
       endif
-
+#endif
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       !! quadratic splines with UK met office monotonicity constraints !!
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -337,10 +340,12 @@ subroutine remap1(Qdp,nx,qsize,dp1,dp2)
 
       zv1 = 0
       do k=1,nlev
+#ifndef OPENACC_HOMME      
         if (zgam(k+1)>1d0) then
           WRITE(*,*) 'r not in [0:1]', zgam(k+1)
           abort=.true.
         endif
+#endif        
         zv2 = zv(zkr(k+1))+(za0(zkr(k+1))*zgam(k+1)+(za1(zkr(k+1))/2)*(zgam(k+1)**2)+ &
              (za2(zkr(k+1))/3)*(zgam(k+1)**3))*zhdp(zkr(k+1))
         Qdp(i,j,k,q) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
@@ -349,10 +354,666 @@ subroutine remap1(Qdp,nx,qsize,dp1,dp2)
     enddo
   enddo
   enddo ! q loop
+#ifndef OPENACC_HOMME  
   if (abort) call abortmp('Bad levels in remap1.  usually CFL violatioin')
-  call t_stopf('remap_Q_noppm')
+#endif  
+  !call t_stopf('remap_Q_noppm')
 
 end subroutine remap1
+
+
+
+subroutine remap1_1_openacc(Qdp_ie,nx,qsize,dp1_ie,dp2_ie,nets,nete)
+  ! remap 1 field
+  ! input:  Qdp   field to be remapped (NOTE: MASS, not MIXING RATIO)
+  !         dp1   layer thickness (source)
+  !         dp2   layer thickness (target)
+  !
+  ! output: remaped Qdp, conserving mass, monotone on Q=Qdp/dp
+  !
+  implicit none
+
+
+  integer, intent(in) :: nx,qsize,nets,nete
+  real (kind=real_kind), intent(inout) :: Qdp_ie(nelemd,nx,nx,nlev,qsize)
+  real (kind=real_kind), intent(in) :: dp1_ie(nelemd,nx,nx,nlev),dp2_ie(nelemd,nx,nx,nlev)
+  ! ========================
+  ! Local Variables
+  ! ========================
+
+  real (kind=real_kind), dimension(nelemd,nlev+1)    :: rhs_ie, zgam_ie, zv_ie
+  real (kind=real_kind), dimension(nlev+1)    ::  lower_diag, diag, upper_diag, q_diag,z1c,z2c
+  real (kind=real_kind), dimension(nelemd,nlev)      :: h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie!,dp_star,dp_np1
+  real (kind=real_kind), dimension(nlev)      :: Qcol
+  real (kind=real_kind)  :: f_xm,level1,level2,level3,level4,level5, &
+                            peaks_min,peaks_max,tmp_cal,xm,xm_d,zv1,zv2, &
+                            zero = 0,one = 1,tiny = 1e-12,qmax = 1d50
+  integer(kind=int_kind) :: zkr_ie(nelemd,nlev+1)
+  integer(kind=int_kind) :: filter_code_ie(nelemd,nlev)
+  integer(kind=int_kind) :: peaks,im1,im2,im3,ip1,ip2, &
+                            lt1,lt2,lt3,t0,t1,t2,t3,t4,tm,tp,ie,i,ilev,j,jk,k,q
+  logical :: abort=.false.
+
+
+  if (vert_remap_q_alg == -1) then
+     if (abort) call abortmp('vert_remap_q_alg == -1 : in remap1_1_openacc call. OpenACC implementation does not support it yet.')
+     return
+  endif
+  if (vert_remap_q_alg == 1 .or. vert_remap_q_alg == 2 .or. vert_remap_q_alg == 3) then
+     if (abort) call abortmp('vert_remap_q_alg == 1 .or. vert_remap_q_alg == 2 .or. vert_remap_q_alg == 3 : in remap1_1_openacc call. OpenACC implementation does not support it yet.')
+    return
+  endif
+
+  call t_startf('remap_Q_noppm')
+#ifdef OPENACC_HOMME
+!$acc enter data create(rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie,filter_code_ie,zkr_ie,zv_ie)
+#endif 
+
+do q=1,qsize
+ do i=1,nx
+  do j=1,nx
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(lower_diag, diag, upper_diag, q_diag,z1c,z2c,Qcol) &
+!$acc present(Qdp_ie,dp1_ie,dp2_ie,rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie,zkr_ie,zv_ie) 
+#endif    
+    do ie=nets,nete
+
+      z1c(1)=0 ! source grid
+      z2c(1)=0 ! target grid
+      do k=1,nlev
+         z1c(k+1)=z1c(k)+dp1_ie(ie,i,j,k)
+         z2c(k+1)=z2c(k)+dp2_ie(ie,i,j,k)
+      enddo
+
+      zv_ie(ie,1)=0
+      do k=1,nlev
+        Qcol(k)=Qdp_ie(ie,i,j,k,q)!  *(z1c(k+1)-z1c(k)) input is mass
+        zv_ie(ie,k+1) = zv_ie(ie,k)+Qcol(k)
+      enddo
+#ifndef OPENACC_HOMME
+      if (ABS(z2c(nlev+1)-z1c(nlev+1)).GE.0.000001) then
+        write(6,*) 'SURFACE PRESSURE IMPLIED BY ADVECTION SCHEME'
+        write(6,*) 'NOT CORRESPONDING TO SURFACE PRESSURE IN    '
+        write(6,*) 'DATA FOR MODEL LEVELS'
+        write(6,*) 'PLEVMODEL=',z2c(nlev+1)
+        write(6,*) 'PLEV     =',z1c(nlev+1)
+        write(6,*) 'DIFF     =',z2c(nlev+1)-z1c(nlev+1)
+        abort=.true.
+      endif
+#endif
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! quadratic splines with UK met office monotonicity constraints !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      zkr_ie(ie,:)  = 0 !99
+      ilev = 2
+      zkr_ie(ie,1) = 1
+      zkr_ie(ie,nlev+1) = nlev
+      kloop: do k = 2,nlev
+        do jk = ilev,nlev+1
+          if (z1c(jk).ge.z2c(k)) then
+            ilev      = jk
+            zkr_ie(ie,k)   = jk-1
+            cycle kloop
+          endif
+        enddo
+      enddo kloop
+
+      !if(any(zkr==0)) then
+      !  write(6,*) "Invalid zkr values in remap1."
+      !  abort=.true.
+      !endif
+
+      zgam_ie(ie,:)  = (z2c(1:nlev+1)-z1c(zkr_ie(ie,:))) / (z1c(zkr_ie(ie,:)+1)-z1c(zkr_ie(ie,:)))
+      zgam_ie(ie,1)      = 0.0
+      zgam_ie(ie,nlev+1) = 1.0
+      zhdp_ie(ie,:) = z1c(2:nlev+1)-z1c(1:nlev)
+
+      h_ie(ie,:) = 1/zhdp_ie(ie,:)
+      zarg_ie(ie,:) = Qcol * h_ie(ie,:)
+      rhs_ie(ie,:) = 0
+      lower_diag = 0
+      diag = 0
+      upper_diag = 0
+
+      rhs_ie(ie,1)=3*zarg_ie(ie,1)
+      rhs_ie(ie,2:nlev) = 3*(zarg_ie(ie,2:nlev)*h_ie(ie,2:nlev) + zarg_ie(ie,1:nlev-1)*h_ie(ie,1:nlev-1))
+      rhs_ie(ie,nlev+1)=3*zarg_ie(ie,nlev)
+
+      lower_diag(1)=1
+      lower_diag(2:nlev) = h_ie(ie,1:nlev-1)
+      lower_diag(nlev+1)=1
+
+      diag(1)=2
+      diag(2:nlev) = 2*(h_ie(ie,2:nlev) + h_ie(ie,1:nlev-1))
+      diag(nlev+1)=2
+
+      upper_diag(1)=1
+      upper_diag(2:nlev) = h_ie(ie,2:nlev)
+      upper_diag(nlev+1)=0
+
+      q_diag(1)=-upper_diag(1)/diag(1)
+      rhs_ie(ie,1)= rhs_ie(ie,1)/diag(1)
+
+      do k=2,nlev+1
+        tmp_cal    =  1/(diag(k)+lower_diag(k)*q_diag(k-1))
+        q_diag(k) = -upper_diag(k)*tmp_cal
+        rhs_ie(ie,k) =  (rhs_ie(ie,k)-lower_diag(k)*rhs_ie(ie,k-1))*tmp_cal
+      enddo
+      do k=nlev,1,-1
+        rhs_ie(ie,k)=rhs_ie(ie,k)+q_diag(k)*rhs_ie(ie,k+1)
+      enddo
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !!  monotonicity modifications  !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      dy_ie(ie,1:nlev-1) = zarg_ie(ie,2:nlev)-zarg_ie(ie,1:nlev-1)
+      dy_ie(ie,nlev) = dy_ie(ie,nlev-1)
+
+      dy_ie(ie,:) = merge(zero, dy_ie(ie,:), abs(dy_ie(ie,:)) < tiny )
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(rhs_ie,h_ie,dy_ie,zarg_ie,filter_code_ie) 
+#endif 
+    do ie=nets,nete
+      filter_code_ie(ie,:) = 0  
+      do k=1,nlev
+        im1=MAX(1,k-1)
+        im2=MAX(1,k-2)
+        im3=MAX(1,k-3)
+        ip1=MIN(nlev,k+1)
+        t1 = merge(1,0,(zarg_ie(ie,k)-rhs_ie(ie,k))*(rhs_ie(ie,k)-zarg_ie(ie,im1)) >= 0)
+        t2 = merge(1,0,dy_ie(ie,im2)*(rhs_ie(ie,k)-zarg_ie(ie,im1)) > 0 .AND. dy_ie(ie,im2)*dy_ie(ie,im3) > 0 &
+             .AND. dy_ie(ie,k)*dy_ie(ie,ip1) > 0 .AND. dy_ie(ie,im2)*dy_ie(ie,k) < 0 )
+        t3 = merge(1,0,ABS(rhs_ie(ie,k)-zarg_ie(ie,im1)) > ABS(rhs_ie(ie,k)-zarg_ie(ie,k)))
+
+        filter_code_ie(ie,k) = merge(0,1,t1+t2 > 0)
+        rhs_ie(ie,k) = (1-filter_code_ie(ie,k))*rhs_ie(ie,k)+filter_code_ie(ie,k)*(t3*zarg_ie(ie,k)+(1-t3)*zarg_ie(ie,im1))
+        filter_code_ie(ie,im1) = MAX(filter_code_ie(ie,im1),filter_code_ie(ie,k))
+      enddo
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie) 
+#endif
+    do ie=nets,nete
+      rhs_ie(ie,:) = merge(qmax,rhs_ie(ie,:),rhs_ie(ie,:) > qmax)
+      rhs_ie(ie,:) = merge(zero,rhs_ie(ie,:),rhs_ie(ie,:) < zero)
+
+      za0_ie(ie,:) = rhs_ie(ie,1:nlev)
+      za1_ie(ie,:) = -4*rhs_ie(ie,1:nlev) - 2*rhs_ie(ie,2:nlev+1) + 6*zarg_ie(ie,:)
+      za2_ie(ie,:) =  3*rhs_ie(ie,1:nlev) + 3*rhs_ie(ie,2:nlev+1) - 6*zarg_ie(ie,:)
+
+      dy_ie(ie,1:nlev) = rhs_ie(ie,2:nlev+1)-rhs_ie(ie,1:nlev)
+      dy_ie(ie,:) = merge(zero, dy_ie(ie,:), abs(dy_ie(ie,:)) < tiny )
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! Compute the 3 quadratic spline coeffients {za0, za1, za2}				   !!
+      !! knowing the quadratic spline parameters {rho_left,rho_right,zarg}		   !!
+      !! Zerroukat et.al., Q.J.R. Meteorol. Soc., Vol. 128, pp. 2801-2820 (2002).   !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      h_ie(ie,:) = rhs_ie(ie,2:nlev+1)
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(rhs_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,filter_code_ie) 
+#endif
+    do ie=nets,nete
+      do k=1,nlev
+        xm_d = merge(one,2*za2_ie(ie,k),abs(za2_ie(ie,k)) < tiny)
+        xm = merge(zero,-za1_ie(ie,k)/xm_d, abs(za2_ie(ie,k)) < tiny)
+        f_xm = za0_ie(ie,k) + za1_ie(ie,k)*xm + za2_ie(ie,k)*xm**2
+
+        t1 = merge(1,0,ABS(za2_ie(ie,k)) > tiny)
+        t2 = merge(1,0,xm <= zero .OR. xm >= 1)
+        t3 = merge(1,0,za2_ie(ie,k) > zero)
+        t4 = merge(1,0,za2_ie(ie,k) < zero)
+        tm = merge(1,0,t1*((1-t2)+t3) .EQ. 2)
+        tp = merge(1,0,t1*((1-t2)+(1-t3)+t4) .EQ. 3)
+
+        peaks=0
+        peaks = merge(-1,peaks,tm .EQ. 1)
+        peaks = merge(+1,peaks,tp .EQ. 1)
+        peaks_min = merge(f_xm,MIN(za0_ie(ie,k),za0_ie(ie,k)+za1_ie(ie,k)+za2_ie(ie,k)),tm .EQ. 1)
+        peaks_max = merge(f_xm,MAX(za0_ie(ie,k),za0_ie(ie,k)+za1_ie(ie,k)+za2_ie(ie,k)),tp .EQ. 1)
+
+        im1=MAX(1,k-1)
+        im2=MAX(1,k-2)
+        ip1=MIN(nlev,k+1)
+        ip2=MIN(nlev,k+2)
+
+        t1 = merge(abs(peaks),0,(dy_ie(ie,im2)*dy_ie(ie,im1) <= tiny) .OR. &
+             (dy_ie(ie,ip1)*dy_ie(ie,ip2) <= tiny) .OR. (dy_ie(ie,im1)*dy_ie(ie,ip1) >= tiny) .OR. &
+             (dy_ie(ie,im1)*float(peaks) <= tiny))
+
+        filter_code_ie(ie,k) = merge(1,t1+(1-t1)*filter_code_ie(ie,k),(rhs_ie(ie,k) >= qmax) .OR. &
+             (rhs_ie(ie,k) <= zero) .OR. (peaks_max > qmax) .OR. (peaks_min < tiny))
+
+        if (filter_code_ie(ie,k) > 0) then
+          level1 = rhs_ie(ie,k)
+          level2 = (2*rhs_ie(ie,k)+h_ie(ie,k))/3
+          level3 = 0.5*(rhs_ie(ie,k)+h_ie(ie,k))
+          level4 = (1/3d0)*rhs_ie(ie,k)+2*(1/3d0)*h_ie(ie,k)
+          level5 = h_ie(ie,k)
+
+          t1 = merge(1,0,h_ie(ie,k) >= rhs_ie(ie,k))
+          t2 = merge(1,0,zarg_ie(ie,k) <= level1 .OR.  zarg_ie(ie,k) >= level5)
+          t3 = merge(1,0,zarg_ie(ie,k) >  level1 .AND. zarg_ie(ie,k) <  level2)
+          t4 = merge(1,0,zarg_ie(ie,k) >  level4 .AND. zarg_ie(ie,k) <  level5)
+
+          lt1 = t1*t2
+          lt2 = t1*(1-t2+t3)
+          lt3 = t1*(1-t2+1-t3+t4)
+
+          za0_ie(ie,k) = merge(zarg_ie(ie,k),za0_ie(ie,k),lt1 .EQ. 1)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt1 .EQ. 1)
+          za2_ie(ie,k) = merge(zero,za2_ie(ie,k),lt1 .EQ. 1)
+
+          za0_ie(ie,k) = merge(rhs_ie(ie,k),za0_ie(ie,k),lt2 .EQ. 2)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt2 .EQ. 2)
+          za2_ie(ie,k) = merge(3*(zarg_ie(ie,k)-rhs_ie(ie,k)),za2_ie(ie,k),lt2 .EQ. 2)
+
+          za0_ie(ie,k) = merge(-2*h_ie(ie,k)+3*zarg_ie(ie,k),za0_ie(ie,k),lt3 .EQ. 3)
+          za1_ie(ie,k) = merge(+6*h_ie(ie,k)-6*zarg_ie(ie,k),za1_ie(ie,k),lt3 .EQ. 3)
+          za2_ie(ie,k) = merge(-3*h_ie(ie,k)+3*zarg_ie(ie,k),za2_ie(ie,k),lt3 .EQ. 3)
+
+          t2 = merge(1,0,zarg_ie(ie,k) >= level1 .OR.  zarg_ie(ie,k) <= level5)
+          t3 = merge(1,0,zarg_ie(ie,k) <  level1 .AND. zarg_ie(ie,k) >  level2)
+          t4 = merge(1,0,zarg_ie(ie,k) <  level4 .AND. zarg_ie(ie,k) >  level5)
+
+          lt1 = (1-t1)*t2
+          lt2 = (1-t1)*(1-t2+t3)
+          lt3 = (1-t1)*(1-t2+1-t3+t4)
+
+          za0_ie(ie,k) = merge(zarg_ie(ie,k),za0_ie(ie,k),lt1 .EQ. 1)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt1 .EQ. 1)
+          za2_ie(ie,k) = merge(zero,za2_ie(ie,k),lt1 .EQ. 1)
+
+          za0_ie(ie,k) = merge(rhs_ie(ie,k),za0_ie(ie,k),lt2 .EQ. 2)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt2 .EQ. 2)
+          za2_ie(ie,k) = merge(3*(zarg_ie(ie,k)-rhs_ie(ie,k)),za2_ie(ie,k),lt2 .EQ. 2)
+
+          za0_ie(ie,k) = merge(-2*h_ie(ie,k)+3*zarg_ie(ie,k),za0_ie(ie,k),lt3 .EQ. 3)
+          za1_ie(ie,k) = merge(+6*h_ie(ie,k)-6*zarg_ie(ie,k),za1_ie(ie,k),lt3 .EQ. 3)
+          za2_ie(ie,k) = merge(-3*h_ie(ie,k)+3*zarg_ie(ie,k),za2_ie(ie,k),lt3 .EQ. 3)
+        endif
+      enddo
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! start iteration from top to bottom of atmosphere !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(Qdp_ie,zgam_ie,za0_ie,za1_ie,za2_ie,zhdp_ie,zkr_ie,zv_ie) 
+#endif
+    do ie=nets,nete
+      zv1 = 0
+      do k=1,nlev
+#ifndef OPENACC_HOMME      
+        if (zgam_ie(ie,k+1)>1d0) then
+          WRITE(*,*) 'r not in [0:1]', zgam_ie(ie,k+1)
+          abort=.true.
+        endif
+#endif        
+        zv2 = zv_ie(ie,zkr_ie(ie,k+1))+(za0_ie(ie,zkr_ie(ie,k+1))*zgam_ie(ie,k+1)+(za1_ie(ie,zkr_ie(ie,k+1))/2)*(zgam_ie(ie,k+1)**2)+ &
+             (za2_ie(ie,zkr_ie(ie,k+1))/3)*(zgam_ie(ie,k+1)**3))*zhdp_ie(ie,zkr_ie(ie,k+1))
+        Qdp_ie(ie,i,j,k,q) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
+        zv1 = zv2
+      enddo
+    enddo ! ie loop   
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif        
+   enddo ! j loop
+  enddo ! i loop
+ enddo ! q loop
+  
+#ifdef OPENACC_HOMME
+!$acc exit data delete(rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie,filter_code_ie,zkr_ie,zv_ie)
+#endif   
+ 
+#ifndef OPENACC_HOMME  
+  if (abort) call abortmp('Bad levels in remap1.  usually CFL violatioin')
+#endif  
+  call t_stopf('remap_Q_noppm')
+
+end subroutine remap1_1_openacc
+
+
+
+subroutine remap1_3_openacc(elem,np1_qdp,nx,qsize,dp1_ie,dp2_ie,nets,nete)
+  ! remap 1 field
+  ! input:  Qdp   field to be remapped (NOTE: MASS, not MIXING RATIO)
+  !         dp1   layer thickness (source)
+  !         dp2   layer thickness (target)
+  !
+  ! output: remaped Qdp, conserving mass, monotone on Q=Qdp/dp
+  !  
+  use element_mod, only            : element_t
+  implicit none
+
+  integer, intent(in) :: np1_qdp,nx,qsize,nets,nete
+  type (element_t), intent(inout) :: elem(:)
+  real (kind=real_kind), intent(in) :: dp1_ie(nelemd,nx,nx,nlev),dp2_ie(nelemd,nx,nx,nlev)
+  ! ========================
+  ! Local Variables
+  ! ========================
+
+  real (kind=real_kind), dimension(nelemd,nlev+1)    :: rhs_ie, zgam_ie, zv_ie
+  real (kind=real_kind), dimension(nlev+1)    ::  lower_diag, diag, upper_diag, q_diag,z1c,z2c
+  real (kind=real_kind), dimension(nelemd,nlev)      :: h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie!,dp_star,dp_np1
+  real (kind=real_kind), dimension(nlev)      :: Qcol
+  real (kind=real_kind)  :: f_xm,level1,level2,level3,level4,level5, &
+                            peaks_min,peaks_max,tmp_cal,xm,xm_d,zv1,zv2, &
+                            zero = 0,one = 1,tiny = 1e-12,qmax = 1d50
+  integer(kind=int_kind) :: zkr_ie(nelemd,nlev+1)
+  integer(kind=int_kind) :: filter_code_ie(nelemd,nlev)
+  integer(kind=int_kind) :: peaks,im1,im2,im3,ip1,ip2, &
+                            lt1,lt2,lt3,t0,t1,t2,t3,t4,tm,tp,ie,i,ilev,j,jk,k,q
+  logical :: abort=.false.
+
+  if (vert_remap_q_alg == -1) then
+     if (abort) call abortmp('vert_remap_q_alg == -1 : in remap1_1_openacc call. OpenACC implementation does not support it yet.')
+     return
+  endif
+  if (vert_remap_q_alg == 1 .or. vert_remap_q_alg == 2 .or. vert_remap_q_alg == 3) then
+     if (abort) call abortmp('vert_remap_q_alg == 1 .or. vert_remap_q_alg == 2 .or. vert_remap_q_alg == 3 : in remap1_1_openacc call. OpenACC implementation does not support it yet.')
+    return
+  endif
+
+  call t_startf('remap_Q_noppm')
+#ifdef OPENACC_HOMME
+!$acc enter data create(rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie,filter_code_ie,zkr_ie,zv_ie)
+#endif 
+
+do q=1,qsize
+ do i=1,nx
+  do j=1,nx
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(lower_diag, diag, upper_diag, q_diag,z1c,z2c,Qcol) &
+!$acc present(elem,dp1_ie,dp2_ie,rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie,zkr_ie,zv_ie) 
+#endif    
+    do ie=nets,nete
+
+      z1c(1)=0 ! source grid
+      z2c(1)=0 ! target grid
+      do k=1,nlev
+         z1c(k+1)=z1c(k)+dp1_ie(ie,i,j,k)
+         z2c(k+1)=z2c(k)+dp2_ie(ie,i,j,k)
+      enddo
+
+      zv_ie(ie,1)=0
+      do k=1,nlev
+        Qcol(k)=elem(ie)%state%Qdp(i,j,k,q,np1_qdp)!  *(z1c(k+1)-z1c(k)) input is mass
+        zv_ie(ie,k+1) = zv_ie(ie,k)+Qcol(k)
+      enddo
+#ifndef OPENACC_HOMME
+      if (ABS(z2c(nlev+1)-z1c(nlev+1)).GE.0.000001) then
+        write(6,*) 'SURFACE PRESSURE IMPLIED BY ADVECTION SCHEME'
+        write(6,*) 'NOT CORRESPONDING TO SURFACE PRESSURE IN    '
+        write(6,*) 'DATA FOR MODEL LEVELS'
+        write(6,*) 'PLEVMODEL=',z2c(nlev+1)
+        write(6,*) 'PLEV     =',z1c(nlev+1)
+        write(6,*) 'DIFF     =',z2c(nlev+1)-z1c(nlev+1)
+        abort=.true.
+      endif
+#endif
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! quadratic splines with UK met office monotonicity constraints !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      zkr_ie(ie,:)  = 0 !99
+      ilev = 2
+      zkr_ie(ie,1) = 1
+      zkr_ie(ie,nlev+1) = nlev
+      kloop: do k = 2,nlev
+        do jk = ilev,nlev+1
+          if (z1c(jk).ge.z2c(k)) then
+            ilev      = jk
+            zkr_ie(ie,k)   = jk-1
+            cycle kloop
+          endif
+        enddo
+      enddo kloop
+
+      !if(any(zkr==0)) then
+      !  write(6,*) "Invalid zkr values in remap1."
+      !  abort=.true.
+      !endif
+
+      zgam_ie(ie,:)  = (z2c(1:nlev+1)-z1c(zkr_ie(ie,:))) / (z1c(zkr_ie(ie,:)+1)-z1c(zkr_ie(ie,:)))
+      zgam_ie(ie,1)      = 0.0
+      zgam_ie(ie,nlev+1) = 1.0
+      zhdp_ie(ie,:) = z1c(2:nlev+1)-z1c(1:nlev)
+
+      h_ie(ie,:) = 1/zhdp_ie(ie,:)
+      zarg_ie(ie,:) = Qcol * h_ie(ie,:)
+      rhs_ie(ie,:) = 0
+      lower_diag = 0
+      diag = 0
+      upper_diag = 0
+
+      rhs_ie(ie,1)=3*zarg_ie(ie,1)
+      rhs_ie(ie,2:nlev) = 3*(zarg_ie(ie,2:nlev)*h_ie(ie,2:nlev) + zarg_ie(ie,1:nlev-1)*h_ie(ie,1:nlev-1))
+      rhs_ie(ie,nlev+1)=3*zarg_ie(ie,nlev)
+
+      lower_diag(1)=1
+      lower_diag(2:nlev) = h_ie(ie,1:nlev-1)
+      lower_diag(nlev+1)=1
+
+      diag(1)=2
+      diag(2:nlev) = 2*(h_ie(ie,2:nlev) + h_ie(ie,1:nlev-1))
+      diag(nlev+1)=2
+
+      upper_diag(1)=1
+      upper_diag(2:nlev) = h_ie(ie,2:nlev)
+      upper_diag(nlev+1)=0
+
+      q_diag(1)=-upper_diag(1)/diag(1)
+      rhs_ie(ie,1)= rhs_ie(ie,1)/diag(1)
+
+      do k=2,nlev+1
+        tmp_cal    =  1/(diag(k)+lower_diag(k)*q_diag(k-1))
+        q_diag(k) = -upper_diag(k)*tmp_cal
+        rhs_ie(ie,k) =  (rhs_ie(ie,k)-lower_diag(k)*rhs_ie(ie,k-1))*tmp_cal
+      enddo
+      do k=nlev,1,-1
+        rhs_ie(ie,k)=rhs_ie(ie,k)+q_diag(k)*rhs_ie(ie,k+1)
+      enddo
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !!  monotonicity modifications  !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      dy_ie(ie,1:nlev-1) = zarg_ie(ie,2:nlev)-zarg_ie(ie,1:nlev-1)
+      dy_ie(ie,nlev) = dy_ie(ie,nlev-1)
+
+      dy_ie(ie,:) = merge(zero, dy_ie(ie,:), abs(dy_ie(ie,:)) < tiny )
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(rhs_ie,zgam_ie,dy_ie,zarg_ie,filter_code_ie) 
+#endif 
+    do ie=nets,nete
+      filter_code_ie(ie,:) = 0  
+      do k=1,nlev
+        im1=MAX(1,k-1)
+        im2=MAX(1,k-2)
+        im3=MAX(1,k-3)
+        ip1=MIN(nlev,k+1)
+        t1 = merge(1,0,(zarg_ie(ie,k)-rhs_ie(ie,k))*(rhs_ie(ie,k)-zarg_ie(ie,im1)) >= 0)
+        t2 = merge(1,0,dy_ie(ie,im2)*(rhs_ie(ie,k)-zarg_ie(ie,im1)) > 0 .AND. dy_ie(ie,im2)*dy_ie(ie,im3) > 0 &
+             .AND. dy_ie(ie,k)*dy_ie(ie,ip1) > 0 .AND. dy_ie(ie,im2)*dy_ie(ie,k) < 0 )
+        t3 = merge(1,0,ABS(rhs_ie(ie,k)-zarg_ie(ie,im1)) > ABS(rhs_ie(ie,k)-zarg_ie(ie,k)))
+
+        filter_code_ie(ie,k) = merge(0,1,t1+t2 > 0)
+        rhs_ie(ie,k) = (1-filter_code_ie(ie,k))*rhs_ie(ie,k)+filter_code_ie(ie,k)*(t3*zarg_ie(ie,k)+(1-t3)*zarg_ie(ie,im1))
+        filter_code_ie(ie,im1) = MAX(filter_code_ie(ie,im1),filter_code_ie(ie,k))
+      enddo
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(rhs_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie) 
+#endif
+    do ie=nets,nete
+      rhs_ie(ie,:) = merge(qmax,rhs_ie(ie,:),rhs_ie(ie,:) > qmax)
+      rhs_ie(ie,:) = merge(zero,rhs_ie(ie,:),rhs_ie(ie,:) < zero)
+
+      za0_ie(ie,:) = rhs_ie(ie,1:nlev)
+      za1_ie(ie,:) = -4*rhs_ie(ie,1:nlev) - 2*rhs_ie(ie,2:nlev+1) + 6*zarg_ie(ie,:)
+      za2_ie(ie,:) =  3*rhs_ie(ie,1:nlev) + 3*rhs_ie(ie,2:nlev+1) - 6*zarg_ie(ie,:)
+
+      dy_ie(ie,1:nlev) = rhs_ie(ie,2:nlev+1)-rhs_ie(ie,1:nlev)
+      dy_ie(ie,:) = merge(zero, dy_ie(ie,:), abs(dy_ie(ie,:)) < tiny )
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! Compute the 3 quadratic spline coeffients {za0, za1, za2}				   !!
+      !! knowing the quadratic spline parameters {rho_left,rho_right,zarg}		   !!
+      !! Zerroukat et.al., Q.J.R. Meteorol. Soc., Vol. 128, pp. 2801-2820 (2002).   !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      h_ie(ie,:) = rhs_ie(ie,2:nlev+1)
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(rhs_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,filter_code_ie) 
+#endif
+    do ie=nets,nete
+      do k=1,nlev
+        xm_d = merge(one,2*za2_ie(ie,k),abs(za2_ie(ie,k)) < tiny)
+        xm = merge(zero,-za1_ie(ie,k)/xm_d, abs(za2_ie(ie,k)) < tiny)
+        f_xm = za0_ie(ie,k) + za1_ie(ie,k)*xm + za2_ie(ie,k)*xm**2
+
+        t1 = merge(1,0,ABS(za2_ie(ie,k)) > tiny)
+        t2 = merge(1,0,xm <= zero .OR. xm >= 1)
+        t3 = merge(1,0,za2_ie(ie,k) > zero)
+        t4 = merge(1,0,za2_ie(ie,k) < zero)
+        tm = merge(1,0,t1*((1-t2)+t3) .EQ. 2)
+        tp = merge(1,0,t1*((1-t2)+(1-t3)+t4) .EQ. 3)
+
+        peaks=0
+        peaks = merge(-1,peaks,tm .EQ. 1)
+        peaks = merge(+1,peaks,tp .EQ. 1)
+        peaks_min = merge(f_xm,MIN(za0_ie(ie,k),za0_ie(ie,k)+za1_ie(ie,k)+za2_ie(ie,k)),tm .EQ. 1)
+        peaks_max = merge(f_xm,MAX(za0_ie(ie,k),za0_ie(ie,k)+za1_ie(ie,k)+za2_ie(ie,k)),tp .EQ. 1)
+
+        im1=MAX(1,k-1)
+        im2=MAX(1,k-2)
+        ip1=MIN(nlev,k+1)
+        ip2=MIN(nlev,k+2)
+
+        t1 = merge(abs(peaks),0,(dy_ie(ie,im2)*dy_ie(ie,im1) <= tiny) .OR. &
+             (dy_ie(ie,ip1)*dy_ie(ie,ip2) <= tiny) .OR. (dy_ie(ie,im1)*dy_ie(ie,ip1) >= tiny) .OR. &
+             (dy_ie(ie,im1)*float(peaks) <= tiny))
+
+        filter_code_ie(ie,k) = merge(1,t1+(1-t1)*filter_code_ie(ie,k),(rhs_ie(ie,k) >= qmax) .OR. &
+             (rhs_ie(ie,k) <= zero) .OR. (peaks_max > qmax) .OR. (peaks_min < tiny))
+
+        if (filter_code_ie(ie,k) > 0) then
+          level1 = rhs_ie(ie,k)
+          level2 = (2*rhs_ie(ie,k)+h_ie(ie,k))/3
+          level3 = 0.5*(rhs_ie(ie,k)+h_ie(ie,k))
+          level4 = (1/3d0)*rhs_ie(ie,k)+2*(1/3d0)*h_ie(ie,k)
+          level5 = h_ie(ie,k)
+
+          t1 = merge(1,0,h_ie(ie,k) >= rhs_ie(ie,k))
+          t2 = merge(1,0,zarg_ie(ie,k) <= level1 .OR.  zarg_ie(ie,k) >= level5)
+          t3 = merge(1,0,zarg_ie(ie,k) >  level1 .AND. zarg_ie(ie,k) <  level2)
+          t4 = merge(1,0,zarg_ie(ie,k) >  level4 .AND. zarg_ie(ie,k) <  level5)
+
+          lt1 = t1*t2
+          lt2 = t1*(1-t2+t3)
+          lt3 = t1*(1-t2+1-t3+t4)
+
+          za0_ie(ie,k) = merge(zarg_ie(ie,k),za0_ie(ie,k),lt1 .EQ. 1)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt1 .EQ. 1)
+          za2_ie(ie,k) = merge(zero,za2_ie(ie,k),lt1 .EQ. 1)
+
+          za0_ie(ie,k) = merge(rhs_ie(ie,k),za0_ie(ie,k),lt2 .EQ. 2)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt2 .EQ. 2)
+          za2_ie(ie,k) = merge(3*(zarg_ie(ie,k)-rhs_ie(ie,k)),za2_ie(ie,k),lt2 .EQ. 2)
+
+          za0_ie(ie,k) = merge(-2*h_ie(ie,k)+3*zarg_ie(ie,k),za0_ie(ie,k),lt3 .EQ. 3)
+          za1_ie(ie,k) = merge(+6*h_ie(ie,k)-6*zarg_ie(ie,k),za1_ie(ie,k),lt3 .EQ. 3)
+          za2_ie(ie,k) = merge(-3*h_ie(ie,k)+3*zarg_ie(ie,k),za2_ie(ie,k),lt3 .EQ. 3)
+
+          t2 = merge(1,0,zarg_ie(ie,k) >= level1 .OR.  zarg_ie(ie,k) <= level5)
+          t3 = merge(1,0,zarg_ie(ie,k) <  level1 .AND. zarg_ie(ie,k) >  level2)
+          t4 = merge(1,0,zarg_ie(ie,k) <  level4 .AND. zarg_ie(ie,k) >  level5)
+
+          lt1 = (1-t1)*t2
+          lt2 = (1-t1)*(1-t2+t3)
+          lt3 = (1-t1)*(1-t2+1-t3+t4)
+
+          za0_ie(ie,k) = merge(zarg_ie(ie,k),za0_ie(ie,k),lt1 .EQ. 1)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt1 .EQ. 1)
+          za2_ie(ie,k) = merge(zero,za2_ie(ie,k),lt1 .EQ. 1)
+
+          za0_ie(ie,k) = merge(rhs_ie(ie,k),za0_ie(ie,k),lt2 .EQ. 2)
+          za1_ie(ie,k) = merge(zero,za1_ie(ie,k),lt2 .EQ. 2)
+          za2_ie(ie,k) = merge(3*(zarg_ie(ie,k)-rhs_ie(ie,k)),za2_ie(ie,k),lt2 .EQ. 2)
+
+          za0_ie(ie,k) = merge(-2*h_ie(ie,k)+3*zarg_ie(ie,k),za0_ie(ie,k),lt3 .EQ. 3)
+          za1_ie(ie,k) = merge(+6*h_ie(ie,k)-6*zarg_ie(ie,k),za1_ie(ie,k),lt3 .EQ. 3)
+          za2_ie(ie,k) = merge(-3*h_ie(ie,k)+3*zarg_ie(ie,k),za2_ie(ie,k),lt3 .EQ. 3)
+        endif
+      enddo
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !! start iteration from top to bottom of atmosphere !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    enddo ! ie loop 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+
+!$acc parallel loop gang vector present(elem,zgam_ie,za0_ie,za1_ie,za2_ie,zhdp_ie,zkr_ie,zv_ie) 
+#endif
+    do ie=nets,nete
+      zv1 = 0
+      do k=1,nlev
+#ifndef OPENACC_HOMME      
+        if (zgam_ie(ie,k+1)>1d0) then
+          WRITE(*,*) 'r not in [0:1]', zgam_ie(ie,k+1)
+          abort=.true.
+        endif
+#endif        
+        zv2 = zv_ie(ie,zkr_ie(ie,k+1))+(za0_ie(ie,zkr_ie(ie,k+1))*zgam_ie(ie,k+1)+(za1_ie(ie,zkr_ie(ie,k+1))/2)*(zgam_ie(ie,k+1)**2)+ &
+             (za2_ie(ie,zkr_ie(ie,k+1))/3)*(zgam_ie(ie,k+1)**3))*zhdp_ie(ie,zkr_ie(ie,k+1))
+        elem(ie)%state%Qdp(i,j,k,q,np1_qdp) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
+        zv1 = zv2
+      enddo
+    enddo ! ie loop   
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif        
+   enddo ! j loop
+  enddo ! i loop
+ enddo ! q loop
+
+#ifdef OPENACC_HOMME
+!$acc exit data delete(rhs_ie,zgam_ie,h_ie,dy_ie,za0_ie,za1_ie,za2_ie,zarg_ie,zhdp_ie,filter_code_ie,zkr_ie,zv_ie)
+#endif  
+ 
+#ifndef OPENACC_HOMME
+  if (abort) call abortmp('Bad levels in remap1.  usually CFL violatioin')
+#endif  
+  call t_stopf('remap_Q_noppm')
+
+end subroutine remap1_3_openacc
+
 
 subroutine remap1_nofilter(Qdp,nx,qsize,dp1,dp2)
   ! remap 1 field
@@ -363,6 +1024,9 @@ subroutine remap1_nofilter(Qdp,nx,qsize,dp1,dp2)
   ! output: remaped Qdp, conserving mass
   !
   implicit none
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif  
   integer, intent(in) :: nx,qsize
   real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,qsize)
   real (kind=real_kind), intent(in) :: dp1(nx,nx,nlev),dp2(nx,nx,nlev)
@@ -402,7 +1066,8 @@ subroutine remap1_nofilter(Qdp,nx,qsize,dp1,dp2)
         Qcol(k)=Qdp(i,j,k,q)!  *(z1c(k+1)-z1c(k)) input is mass
         zv(k+1) = zv(k)+Qcol(k)
       enddo
-
+      
+#ifndef OPENACC_HOMME
       if (ABS(z2c(nlev+1)-z1c(nlev+1)).GE.0.000001) then
         write(6,*) 'SURFACE PRESSURE IMPLIED BY ADVECTION SCHEME'
         write(6,*) 'NOT CORRESPONDING TO SURFACE PRESSURE IN    '
@@ -412,6 +1077,7 @@ subroutine remap1_nofilter(Qdp,nx,qsize,dp1,dp2)
         write(6,*) 'DIFF     =',z2c(nlev+1)-z1c(nlev+1)
         abort=.true.
       endif
+#endif
 
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       !! quadratic splies with UK met office monotonicity constraints  !!
@@ -483,10 +1149,12 @@ subroutine remap1_nofilter(Qdp,nx,qsize,dp1,dp2)
 
       zv1 = 0
       do k=1,nlev
+#ifndef OPENACC_HOMME      
         if (zgam(k+1)>1d0) then
           WRITE(*,*) 'r not in [0:1]', zgam(k+1)
           abort=.true.
         endif
+#endif        
         zv2 = zv(zkr(k+1))+(za0(zkr(k+1))*zgam(k+1)+(za1(zkr(k+1))/2)*(zgam(k+1)**2)+ &
              (za2(zkr(k+1))/3)*(zgam(k+1)**3))*zhdp(zkr(k+1))
         Qdp(i,j,k,q) = (zv2 - zv1) ! / (z2c(k+1)-z2c(k) ) dont convert back to mixing ratio
@@ -495,7 +1163,9 @@ subroutine remap1_nofilter(Qdp,nx,qsize,dp1,dp2)
     enddo
   enddo
   enddo ! q loop
+#ifndef OPENACC_HOMME  
   if (abort) call abortmp('Bad levels in remap1_nofilter.  usually CFL violatioin')
+#endif  
 !   call t_stopf('remap1_nofilter')
 end subroutine remap1_nofilter
 
@@ -520,6 +1190,9 @@ subroutine remap_Q_ppm(Qdp,nx,qsize,dp1,dp2)
   !
   use control_mod, only        : vert_remap_q_alg
   implicit none
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif  
   integer,intent(in) :: nx,qsize
   real (kind=real_kind), intent(inout) :: Qdp(nx,nx,nlev,qsize)
   real (kind=real_kind), intent(in) :: dp1(nx,nx,nlev),dp2(nx,nx,nlev)
@@ -537,7 +1210,7 @@ subroutine remap_Q_ppm(Qdp,nx,qsize,dp1,dp2)
   real(kind=real_kind) :: mymass, massn1, massn2
   integer :: i, j, k, q, kk, kid(nlev)
 
-  call t_startf('remap_Q_ppm')
+  !call t_startf('remap_Q_ppm')
   do j = 1 , nx
     do i = 1 , nx
 
@@ -628,13 +1301,16 @@ subroutine remap_Q_ppm(Qdp,nx,qsize,dp1,dp2)
       enddo
     enddo
   enddo
-  call t_stopf('remap_Q_ppm')
+  !call t_stopf('remap_Q_ppm')
 end subroutine remap_Q_ppm
 
 
 !THis compute grid-based coefficients from Collela & Woodward 1984.
 function compute_ppm_grids( dx )   result(rslt)
   implicit none
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif   
   real(kind=real_kind), intent(in) :: dx(-1:nlev+2)  !grid spacings
   real(kind=real_kind)             :: rslt(10,0:nlev+1)  !grid spacings
   integer :: j
@@ -667,6 +1343,9 @@ end function compute_ppm_grids
 function compute_ppm( a , dx )    result(coefs)
   use control_mod, only: vert_remap_q_alg
   implicit none
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif   
   real(kind=real_kind), intent(in) :: a    (    -1:nlev+2)  !Cell-mean values
   real(kind=real_kind), intent(in) :: dx   (10,  0:nlev+1)  !grid spacings
   real(kind=real_kind) ::             coefs(0:2,   nlev  )  !PPM coefficients (for parabola)
@@ -726,6 +1405,9 @@ end function compute_ppm
 !given two bounds. Make sure this gets inlined during compilation.
 function integrate_parabola( a , x1 , x2 )    result(mass)
   implicit none
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif   
   real(kind=real_kind), intent(in) :: a(0:2)  !Coefficients of the parabola
   real(kind=real_kind), intent(in) :: x1      !lower domain bound for integration
   real(kind=real_kind), intent(in) :: x2      !upper domain bound for integration

@@ -348,7 +348,9 @@ implicit none
 !  
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   implicit none
-  
+#ifdef OPENACC_HOMME
+  !$acc routine seq 
+#endif  
   type (hvcoord_t),      intent(in)  :: hvcoord                      ! hybrid vertical coordinate struct
   real (kind=real_kind), intent(in) :: vtheta_dp(np,np,nlev)
   real (kind=real_kind), intent(in) :: dp(np,np,nlev)
@@ -376,7 +378,63 @@ implicit none
   enddo
   end subroutine
 
+
+  subroutine get_phinh_openacc(hvcoord,elem,np1,dp_ie,phi_i_ie,nets,nete)
+!
+! Use Equation of State to compute geopotential
+!
+! input:  dp, phis, vtheta_dp  
+! output:  phi
+!
+! used to initialize phi for dry and wet test cases
+! used to compute background phi for reference state
+!
+! NOTE1: dp is pressure layer thickness.  If pnh is used to compute thickness, this
+! routine should be the discrete inverse of get_pnh_and_exner().
+! This routine is usually called with hydrostatic layer thickness (dp3d), 
+! in which case it returns a hydrostatic PHI
+!
+! NOTE2: Exner pressure is defined in terms of p0=1000mb.  Be sure to use global constant p0,
+! instead of hvcoord%ps0, which is set by CAM to ~1021mb
+!  
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  implicit none
   
+  type (hvcoord_t),      intent(in)  :: hvcoord                      ! hybrid vertical coordinate struct
+  type (element_t), intent(in) :: elem(nelemd)
+  real (kind=real_kind), intent(in) :: dp_ie(nelemd,np,np,nlev)
+  integer, intent(in) :: np1,nets,nete
+  real (kind=real_kind), intent(out) :: phi_i_ie(nelemd,np,np,nlevp)
+ 
+  !   local
+  real (kind=real_kind) :: p_ie(nelemd,np,np,nlev) ! pressure at cell centers 
+  real (kind=real_kind) :: p_i_ie(nelemd,np,np,nlevp)  ! pressure on interfaces
+
+  integer :: k, ie
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(hvcoord,elem,dp_ie,phi_i_ie) create(p_i_ie,p_ie)
+#endif     
+  do ie=nets,nete 
+    ! compute pressure on interfaces                                                                                   
+    p_i_ie(ie,:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
+    do k=1,nlev
+      p_i_ie(ie,:,:,k+1)=p_i_ie(ie,:,:,k) + dp_ie(ie,:,:,k)
+    enddo
+    do k=1,nlev
+      p_ie(ie,:,:,k) = (p_i_ie(ie,:,:,k+1)+p_i_ie(ie,:,:,k))/2
+    enddo
+ 
+    phi_i_ie(ie,:,:,nlevp) = elem(ie)%state%phis(:,:)
+    do k=nlev,1,-1
+      phi_i_ie(ie,:,:,k) = phi_i_ie(ie,:,:,k+1)+(Rgas*elem(ie)%state%vtheta_dp(:,:,k,np1)*(p_ie(ie,:,:,k)/p0)**(kappa-1))/p0
+    enddo
+  enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif     
+  end subroutine get_phinh_openacc
+    
 
   subroutine get_dirk_jacobian(JacL,JacD,JacU,dt2,dp3d,phi_i,pnh,exact,&
        epsie,hvcoord,dpnh_dp_i,vtheta_dp)

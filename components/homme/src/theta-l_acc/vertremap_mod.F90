@@ -3,17 +3,17 @@
 #endif
 
 module vertremap_mod
-  use vertremap_base, only: remap1, remap1_nofilter
+  use vertremap_base, only: remap1, remap1_nofilter,remap1_1_openacc,remap1_3_openacc
 
   use kinds, only                  : real_kind,int_kind
-  use dimensions_mod, only         : np,nlev,qsize,nlevp,npsq
+  use dimensions_mod, only         : np,nlev,qsize,nlevp,npsq,nelemd
   use hybvcoord_mod, only          : hvcoord_t
   use element_mod, only            : element_t
   use perf_mod, only               : t_startf, t_stopf  ! _EXTERNAL
   use parallel_mod, only           : abortmp, parallel_t
   use control_mod, only : vert_remap_q_alg
   use element_ops, only : set_theta_ref
-  use eos, only : get_phinh
+  use eos, only : get_phinh,get_phinh_openacc
   implicit none
   private
   public :: vertical_remap
@@ -48,11 +48,10 @@ contains
 
   integer :: ie,i,j,k,np1,nets,nete,np1_qdp
   integer :: q
-
-  real (kind=real_kind), dimension(np,np,nlev)  :: dp,dp_star
-  real (kind=real_kind), dimension(np,np,nlev)  :: theta_ref
-  real (kind=real_kind), dimension(np,np,nlevp) :: phi_ref
-  real (kind=real_kind), dimension(np,np,nlev,5)  :: ttmp
+  
+  real (kind=real_kind), dimension(nelemd,np,np,nlev)  :: dp_ie,dp_star_ie
+  real (kind=real_kind), dimension(nelemd,np,np,nlevp) :: phi_ref_ie
+  real (kind=real_kind), dimension(nelemd,np,np,nlev,5)  :: ttmp_ie
 
   call t_startf('vertical_remap')
 
@@ -75,96 +74,134 @@ contains
   ! hence:
   !    (dp_star(k)-dp(k))/dt_q = (eta_dot_dpdn(i,j,k+1) - eta_dot_dpdn(i,j,k) )
   !
+#ifdef OPENACC_HOMME
+!$acc enter data create(dp_ie,dp_star_ie, phi_ref_ie, ttmp_ie)
+#endif  
    do ie=nets,nete
      ! update final ps_v
      elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
           sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+   enddo  !  ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc update device(elem,hvcoord)
+!$acc parallel loop gang vector collapse(2) present(elem,dp_ie,dp_star_ie,hvcoord) 
+#endif
+   do ie=nets,nete         
      do k=1,nlev
-        dp(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+        dp_ie(ie,:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
              ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,np1)
         if (rsplit==0) then
-           dp_star(:,:,k) = dp(:,:,k) + dt*(elem(ie)%derived%eta_dot_dpdn(:,:,k+1) -&
+           dp_star_ie(ie,:,:,k) = dp_ie(ie,:,:,k) + dt*(elem(ie)%derived%eta_dot_dpdn(:,:,k+1) -&
                 elem(ie)%derived%eta_dot_dpdn(:,:,k))
         else
-           dp_star(:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
+           dp_star_ie(ie,:,:,k) = elem(ie)%state%dp3d(:,:,k,np1)
         endif
      enddo
-     if (minval(dp_star)<0) then
+   enddo  !  ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(dp_star_ie)
+#endif  
+   do ie=nets,nete   
+     if (minval(dp_star_ie(ie,:,:,:))<0) then
+#ifdef OPENACC_HOMME
+!$acc update self(dp_ie,elem)
+#endif     
         do k=1,nlev
         do i=1,np
         do j=1,np
-           if (dp_star(i,j,k ) < 0) then
+           if (dp_star_ie(ie,i,j,k ) < 0) then
               print *,'index ie,i,j,k = ',ie,i,j,k
-              print *,'dp,dp_star = ',dp(i,j,k),dp_star(i,j,k)
-              print *,'eta_dot_dpdn = ',elem(ie)%derived%eta_dot_dpdn(i,j,k+1),elem(ie)%derived%eta_dot_dpdn(i,j,k)
-              print *,"column location lat,lon (radians):",elem(ie)%spherep(i,j)%lat,elem(ie)%spherep(i,j)%lon
+              print *,'dp_star = ',dp_star_ie(ie,i,j,k)
+              !print *,'dp,dp_star = ',dp_ie(ie,i,j,k),dp_star_ie(ie,i,j,k)
+              !print *,'eta_dot_dpdn = ',elem(ie)%derived%eta_dot_dpdn(i,j,k+1),elem(ie)%derived%eta_dot_dpdn(i,j,k)
+              !print *,"column location lat,lon (radians):",elem(ie)%spherep(i,j)%lat,elem(ie)%spherep(i,j)%lon
            endif
         enddo
         enddo
         enddo
         call abortmp('negative layer thickness.  timestep or remap time too large')
      endif
+   enddo  !  ie=nets,nete
 
      if (rsplit>0) then
         !removing theta_ref does not help much and will not conserve theta*dp
         !call set_theta_ref(hvcoord,dp_star,theta_ref)
 
-        ! remove hydrostatic phi befor remap
-        call get_phinh(hvcoord,elem(ie)%state%phis,elem(ie)%state%vtheta_dp(:,:,:,np1),dp_star,phi_ref)
-        elem(ie)%state%phinh_i(:,:,:,np1)=&
-             elem(ie)%state%phinh_i(:,:,:,np1) -phi_ref(:,:,:)
- 
-        !  REMAP u,v,T from levels in dp3d() to REF levels
-        ttmp(:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star
-        ttmp(:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star
-        ttmp(:,:,:,3)=elem(ie)%state%vtheta_dp(:,:,:,np1)   ! - theta_ref*dp_star*Cp
-        do k=1,nlev
-           ttmp(:,:,k,4)=elem(ie)%state%phinh_i(:,:,k+1,np1)-&
+       call get_phinh_openacc(hvcoord,elem,np1,dp_star_ie,phi_ref_ie,nets,nete) 
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(elem,dp_star_ie,phi_ref_ie,ttmp_ie)
+#endif    
+       do ie=nets,nete
+         elem(ie)%state%phinh_i(:,:,:,np1)=&
+             elem(ie)%state%phinh_i(:,:,:,np1) -phi_ref_ie(ie,:,:,:)
+         !  REMAP u,v,T from levels in dp3d() to REF levels
+         ttmp_ie(ie,:,:,:,1)=elem(ie)%state%v(:,:,1,:,np1)*dp_star_ie(ie,:,:,:)
+         ttmp_ie(ie,:,:,:,2)=elem(ie)%state%v(:,:,2,:,np1)*dp_star_ie(ie,:,:,:)
+         ttmp_ie(ie,:,:,:,3)=elem(ie)%state%vtheta_dp(:,:,:,np1)   ! - theta_ref*dp_star*Cp
+         do k=1,nlev
+            ttmp_ie(ie,:,:,k,4)=elem(ie)%state%phinh_i(:,:,k+1,np1)-&
                 elem(ie)%state%phinh_i(:,:,k,np1) 
-           ttmp(:,:,k,5)=elem(ie)%state%w_i(:,:,k+1,np1)-&
+            ttmp_ie(ie,:,:,k,5)=elem(ie)%state%w_i(:,:,k+1,np1)-&
                 elem(ie)%state%w_i(:,:,k,np1)
-        enddo
-        !ttmp(:,:,:,4)=ttmp(:,:,:,4) !*dp_star
-        !ttmp(:,:,:,5)=ttmp(:,:,:,5) !*dp_star
-    
-        call t_startf('vertical_remap1_1')
-        call remap1(ttmp,np,5,dp_star,dp)
-        call t_stopf('vertical_remap1_1')
+         enddo        
+       enddo  !  ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(ttmp_ie,dp_star_ie, dp_ie)
+#endif         
 
-        !call set_theta_ref(hvcoord,dp,theta_ref)
-        elem(ie)%state%v(:,:,1,:,np1)=ttmp(:,:,:,1)/dp
-        elem(ie)%state%v(:,:,2,:,np1)=ttmp(:,:,:,2)/dp
-        elem(ie)%state%vtheta_dp(:,:,:,np1)=ttmp(:,:,:,3) ! + theta_ref*dp*Cp
-      
-        
-        do k=nlev,1,-1
-           elem(ie)%state%phinh_i(:,:,k,np1)=&
-                elem(ie)%state%phinh_i(:,:,k+1,np1)-ttmp(:,:,k,4)  !/dp(:,:,k)
-           elem(ie)%state%w_i(:,:,k,np1)=&
-                elem(ie)%state%w_i(:,:,k+1,np1)-ttmp(:,:,k,5)  !/dp(:,:,k)
-        enddo
+       call remap1_1_openacc(ttmp_ie,np,5,dp_star_ie,dp_ie,nets,nete)
+       
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(elem,ttmp_ie, dp_ie)
+#endif        
+       do ie=nets,nete 
+         !call set_theta_ref(hvcoord,dp,theta_ref)
+         elem(ie)%state%v(:,:,1,:,np1)=ttmp_ie(ie,:,:,:,1)/dp_ie(ie,:,:,:)
+         elem(ie)%state%v(:,:,2,:,np1)=ttmp_ie(ie,:,:,:,2)/dp_ie(ie,:,:,:)
+         elem(ie)%state%vtheta_dp(:,:,:,np1)=ttmp_ie(ie,:,:,:,3) ! + theta_ref*dp*Cp
+                 
+         do k=nlev,1,-1
+            elem(ie)%state%phinh_i(:,:,k,np1)=&
+                elem(ie)%state%phinh_i(:,:,k+1,np1)-ttmp_ie(ie,:,:,k,4)  !/dp(:,:,k)
+            elem(ie)%state%w_i(:,:,k,np1)=&
+                elem(ie)%state%w_i(:,:,k+1,np1)-ttmp_ie(ie,:,:,k,5)  !/dp(:,:,k)
+         enddo
+       enddo  !  ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif  
+       
+       call get_phinh_openacc(hvcoord,elem,np1,dp_ie,phi_ref_ie,nets,nete)
 
-        ! depends on theta, so do this after updating theta:
-        call get_phinh(hvcoord,elem(ie)%state%phis,elem(ie)%state%vtheta_dp(:,:,:,np1),dp,phi_ref)
-        elem(ie)%state%phinh_i(:,:,:,np1)=&
-             elem(ie)%state%phinh_i(:,:,:,np1)+phi_ref(:,:,:)
-
-
-        ! since u changed, update w b.c.:
-        elem(ie)%state%w_i(:,:,nlevp,np1) = (elem(ie)%state%v(:,:,1,nlev,np1)*elem(ie)%derived%gradphis(:,:,1) + &
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(elem,phi_ref_ie)
+#endif        
+       do ie=nets,nete  
+         elem(ie)%state%phinh_i(:,:,:,np1)=&
+             elem(ie)%state%phinh_i(:,:,:,np1)+phi_ref_ie(ie,:,:,:)
+             
+         ! since u changed, update w b.c.:
+         elem(ie)%state%w_i(:,:,nlevp,np1) = (elem(ie)%state%v(:,:,1,nlev,np1)*elem(ie)%derived%gradphis(:,:,1) + &
              elem(ie)%state%v(:,:,2,nlev,np1)*elem(ie)%derived%gradphis(:,:,2))/g
        
+       enddo  !  ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif        
      endif
-
      ! remap the gll tracers from lagrangian levels (dp_star)  to REF levels dp
      if (qsize>0) then
-
-       call t_startf('vertical_remap1_3')
-       call remap1(elem(ie)%state%Qdp(:,:,:,:,np1_qdp),np,qsize,dp_star,dp)
-       call t_stopf('vertical_remap1_3')
+       
+        call remap1_3_openacc(elem,np1_qdp,np,qsize,dp_star_ie,dp_ie,nets,nete)
 
      endif
-  enddo
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+!$acc exit data delete(dp_ie,dp_star_ie, phi_ref_ie, ttmp_ie)
+#endif   
   call t_stopf('vertical_remap')
   end subroutine vertical_remap
 
