@@ -53,9 +53,9 @@ type (derivative_t)  , intent(in) :: deriv
 
 ! local
 integer :: i,j,k,kptr,ie,nlyr_tot,ssize
-real (kind=real_kind), dimension(:,:), pointer :: rspheremv
+!real (kind=real_kind), dimension(:,:), pointer :: rspheremv
 real (kind=real_kind), dimension(np,np) :: tmp
-real (kind=real_kind), dimension(np,np) :: tmp2
+!real (kind=real_kind), dimension(np,np) :: tmp2
 real (kind=real_kind), dimension(np,np,2) :: v
 real (kind=real_kind) :: nu_ratio1, nu_ratio2
 logical var_coef1
@@ -93,7 +93,9 @@ endif
       endif
    endif
 
-
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,deriv,stens,vtens)
+#endif 
    do ie=nets,nete
 
 #if (defined COLUMN_OPENMP)
@@ -111,50 +113,69 @@ endif
          vtens(:,:,:,k,ie)=vlaplace_sphere_wk(elem(ie)%state%v(:,:,:,k,nt),deriv,elem(ie),&
               var_coef=var_coef1,nu_ratio=nu_ratio1)
       enddo
+   enddo 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang present(elem,edgebuf,stens,vtens)
+#endif        
+   do ie=nets,nete
       kptr=0
       call edgeVpack_nlyr(edgebuf,elem(ie)%desc,vtens(1,1,1,1,ie),2*nlev,kptr,nlyr_tot)
       kptr=2*nlev
       call edgeVpack_nlyr(edgebuf,elem(ie)%desc,stens(1,1,1,1,ie),ssize,kptr,nlyr_tot)
    enddo
-   
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(edgebuf)
+#endif   
    call t_startf('biwkdp3d_bexchV')
    call bndry_exchangeV(hybrid,edgebuf)
    call t_stopf('biwkdp3d_bexchV')
-   
+
+#ifdef OPENACC_HOMME
+!$acc update device(edgebuf)
+!$acc parallel loop gang present(elem,edgebuf,stens,vtens)
+#endif    
    do ie=nets,nete
-      rspheremv     => elem(ie)%rspheremp(:,:)
+      !rspheremv     => elem(ie)%rspheremp(:,:)
       
       kptr=0
       call edgeVunpack_nlyr(edgebuf,elem(ie)%desc,vtens(1,1,1,1,ie),2*nlev,kptr,nlyr_tot)
       kptr=2*nlev
       call edgeVunpack_nlyr(edgebuf,elem(ie)%desc,stens(1,1,1,1,ie),ssize,kptr,nlyr_tot)
-
-
-      
+   enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang vector collapse(2) private(tmp,v) present(elem,deriv,stens,vtens)
+#endif 
+   do ie=nets,nete      
       ! apply inverse mass matrix, then apply laplace again
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k,v,tmp)
 #endif
       do k=1,nlev
-         tmp(:,:)=rspheremv(:,:)*stens(:,:,k,1,ie)
+         tmp(:,:)=elem(ie)%rspheremp(:,:)*stens(:,:,k,1,ie)
          stens(:,:,k,1,ie)=laplace_sphere_wk(tmp,deriv,elem(ie),var_coef=.true.)
 
-         tmp(:,:)=rspheremv(:,:)*stens(:,:,k,2,ie)
+         tmp(:,:)=elem(ie)%rspheremp(:,:)*stens(:,:,k,2,ie)
          stens(:,:,k,2,ie)=laplace_sphere_wk(tmp,deriv,elem(ie),var_coef=.true.)
 
-         tmp(:,:)=rspheremv(:,:)*stens(:,:,k,3,ie)
+         tmp(:,:)=elem(ie)%rspheremp(:,:)*stens(:,:,k,3,ie)
          stens(:,:,k,3,ie)=laplace_sphere_wk(tmp,deriv,elem(ie),var_coef=.true.)
 
-         tmp(:,:)=rspheremv(:,:)*stens(:,:,k,4,ie)
+         tmp(:,:)=elem(ie)%rspheremp(:,:)*stens(:,:,k,4,ie)
          stens(:,:,k,4,ie)=laplace_sphere_wk(tmp,deriv,elem(ie),var_coef=.true.)
 
-         v(:,:,1)=rspheremv(:,:)*vtens(:,:,1,k,ie)
-         v(:,:,2)=rspheremv(:,:)*vtens(:,:,2,k,ie)
+         v(:,:,1)=elem(ie)%rspheremp(:,:)*vtens(:,:,1,k,ie)
+         v(:,:,2)=elem(ie)%rspheremp(:,:)*vtens(:,:,2,k,ie)
          vtens(:,:,:,k,ie)=vlaplace_sphere_wk(v(:,:,:),deriv,elem(ie),&
               var_coef=.true.,nu_ratio=nu_ratio2)
 
       enddo
    enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif   
 #ifdef DEBUGOMP
 #if (defined HORIZ_OPENMP)
 !$OMP BARRIER

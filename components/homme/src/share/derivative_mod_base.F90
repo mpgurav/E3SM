@@ -546,6 +546,9 @@ contains
 !       = +sum  w_in s_in  d( PHI^m)(i)
 !           i
 !
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
     type (derivative_t), intent(in) :: deriv
     type (element_t), intent(in) :: elem
     real(kind=real_kind), intent(in) :: s(np,np)
@@ -607,6 +610,9 @@ contains
 !  and we have two terms for each componet of ds 
 !
 !
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
     type (derivative_t), intent(in) :: deriv
     type (element_t), intent(in) :: elem
     real(kind=real_kind), intent(in) :: s(np,np)
@@ -1418,6 +1424,9 @@ contains
 !
 !   One combination NOT supported:  tensorHV and nu_div/=nu then abort
 !
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
     real(kind=real_kind), intent(in) :: v(np,np,2) 
     logical, intent(in) :: var_coef
     type (derivative_t), intent(in) :: deriv
@@ -1428,11 +1437,13 @@ contains
 
     if (hypervis_scaling/=0 .and. var_coef) then
        ! tensorHV is turned on - requires cartesian formulation
+#ifndef OPENACC_HOMME       
        if (present(nu_ratio)) then
           if (nu_ratio /= 1) then
              call abortmp('ERROR: tensorHV can not be used with nu_div/=nu')
           endif
        endif
+#endif       
        laplace=vlaplace_sphere_wk_cartesian(v,deriv,elem,var_coef)
     else  
        ! all other cases, use contra formulation:
@@ -1447,7 +1458,9 @@ contains
 !
 !   input:  v = vector in lat-lon coordinates
 !   ouput:  weak laplacian of v, in lat-lon coordinates
-
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
     real(kind=real_kind), intent(in) :: v(np,np,2) 
     logical :: var_coef
     type (derivative_t), intent(in) :: deriv
@@ -1500,6 +1513,9 @@ contains
 !                 = < PHI grad(div) >  - < PHI curl(vor) >
 !                 = grad_wk(div) - curl_wk(vor)               
 !
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif
     real(kind=real_kind), intent(in) :: v(np,np,2) 
     logical, intent(in) :: var_coef
     type (derivative_t), intent(in) :: deriv

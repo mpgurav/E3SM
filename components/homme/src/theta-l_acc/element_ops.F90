@@ -65,7 +65,7 @@ module element_ops
   public get_field, get_state
   public get_temperature, get_phi, get_R_star
   public set_thermostate, set_state, set_state_i, set_elem_state
-  public set_forcing_rayleigh_friction, set_theta_ref
+  public set_forcing_rayleigh_friction, set_theta_ref, set_theta_ref_openacc
   public copy_state, tests_finalize
   public state0
   
@@ -644,7 +644,9 @@ contains
   !
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   implicit none
-  
+#ifdef OPENACC_HOMME
+  !$acc routine seq
+#endif  
   type (hvcoord_t),     intent(in)  :: hvcoord                      ! hybrid vertical coordinate struct
   real (kind=real_kind), intent(in) :: dp(np,np,nlev)
   real (kind=real_kind), intent(out) :: theta_ref(np,np,nlev)
@@ -677,6 +679,59 @@ contains
   end subroutine
 
 
+  !_____________________________________________________________________
+  subroutine set_theta_ref_openacc(hvcoord,elem,dp,theta_ref,call_num,nt,nets,nete)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !
+  ! a reference profile for theta = theta(exner)
+  !
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  implicit none
+
+  type (hvcoord_t),     intent(in)  :: hvcoord                      ! hybrid vertical coordinate struct  
+  type (element_t)     , intent(in) :: elem(nelemd)
+  real (kind=real_kind), intent(in) :: dp(nelemd,np,np,nlev)
+  real (kind=real_kind), intent(out) :: theta_ref(nelemd,np,np,nlev)
+  integer ,     intent(in)  :: call_num,nt,nets,nete
+  
+  !   local
+  real (kind=real_kind) :: p_i_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)
+  real (kind=real_kind) :: T0,T1
+  integer :: k,ie
+
+  ! reference T = 288K.  reference lapse rate = 6.5K/km   = .0065 K/m
+  ! Tref = T0+T1*exner
+  ! Thetaref = T0/exner + T1
+  T1 = .0065*288d0*Cp/g ! = 191
+  T0 = 288d0-T1         ! = 97
+#ifdef OPENACC_HOMME
+!$acc enter data create(p_i_ie,exner_ie)
+!$acc parallel loop gang vector present(hvcoord,elem,p_i_ie,exner_ie,dp,theta_ref)
+#endif
+  do ie=nets,nete
+    p_i_ie(ie,:,:,1) =  hvcoord%hyai(1)*hvcoord%ps0   
+    do k=1,nlev
+       if (call_num .eq. 1) then 
+         p_i_ie(ie,:,:,k+1) = p_i_ie(ie,:,:,k) + dp(ie,:,:,k)
+       elseif (call_num .eq. 2) then
+         p_i_ie(ie,:,:,k+1) = p_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,nt)
+       endif 
+    enddo
+#if (defined COLUMN_OPENMP)
+  !$omp parallel do default(shared), private(k)
+#endif
+    do k=1,nlev
+       exner_ie(ie,:,:,k) = ( (p_i_ie(ie,:,:,k) + p_i_ie(ie,:,:,k+1))/(2*p0)) **kappa
+       !theta_ref(:,:,k,ie) = (T0/exner(:,:,k) + T1)*Cp*dp_ref(:,:,k,ie)
+       theta_ref(ie,:,:,k) = (T0/exner_ie(ie,:,:,k) + T1)
+    enddo
+  enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc exit data delete(p_i_ie,exner_ie)
+#endif    
+  end subroutine
 
 
 end module

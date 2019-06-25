@@ -434,6 +434,65 @@ implicit none
 !$acc end parallel loop
 #endif     
   end subroutine get_phinh_openacc
+  
+  subroutine get_phinh_openacc1(hvcoord,elem,np1,vtheta_dp_ie,dp_ie,phi_i_ie,nets,nete)
+!
+! Use Equation of State to compute geopotential
+!
+! input:  dp, phis, vtheta_dp  
+! output:  phi
+!
+! used to initialize phi for dry and wet test cases
+! used to compute background phi for reference state
+!
+! NOTE1: dp is pressure layer thickness.  If pnh is used to compute thickness, this
+! routine should be the discrete inverse of get_pnh_and_exner().
+! This routine is usually called with hydrostatic layer thickness (dp3d), 
+! in which case it returns a hydrostatic PHI
+!
+! NOTE2: Exner pressure is defined in terms of p0=1000mb.  Be sure to use global constant p0,
+! instead of hvcoord%ps0, which is set by CAM to ~1021mb
+!  
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  implicit none
+  
+  type (hvcoord_t),      intent(in)  :: hvcoord                      ! hybrid vertical coordinate struct
+  type (element_t), intent(in) :: elem(nelemd)
+  real (kind=real_kind), intent(in) :: vtheta_dp_ie(nelemd,np,np,nlev)
+  real (kind=real_kind), intent(in) :: dp_ie(nelemd,np,np,nlev)
+  integer, intent(in) :: np1,nets,nete
+  real (kind=real_kind), intent(out) :: phi_i_ie(nelemd,np,np,nlevp)
+ 
+  !   local
+  real (kind=real_kind) :: p_ie(nelemd,np,np,nlev) ! pressure at cell centers 
+  real (kind=real_kind) :: p_i_ie(nelemd,np,np,nlevp)  ! pressure on interfaces
+
+  integer :: k, ie
+
+#ifdef OPENACC_HOMME
+!$acc enter data create(p_i_ie,p_ie)
+!$acc parallel loop gang vector present(hvcoord,elem,dp_ie,phi_i_ie,vtheta_dp_ie,p_ie,p_i_ie) 
+#endif     
+  do ie=nets,nete 
+    ! compute pressure on interfaces                                                                                   
+    p_i_ie(ie,:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
+    do k=1,nlev
+      p_i_ie(ie,:,:,k+1)=p_i_ie(ie,:,:,k) + dp_ie(ie,:,:,k)
+    enddo
+    do k=1,nlev
+      p_ie(ie,:,:,k) = (p_i_ie(ie,:,:,k+1)+p_i_ie(ie,:,:,k))/2
+    enddo
+ 
+    phi_i_ie(ie,:,:,nlevp) = elem(ie)%state%phis(:,:)
+    do k=nlev,1,-1
+      phi_i_ie(ie,:,:,k) = phi_i_ie(ie,:,:,k+1)+(vtheta_dp_ie(ie,:,:,k)*(p_ie(ie,:,:,k)/p0)**(kappa-1))/p0
+    enddo
+  enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc exit data delete(p_i_ie,p_ie)
+#endif     
+  end subroutine get_phinh_openacc1
     
 
   subroutine get_dirk_jacobian(JacL,JacD,JacU,dt2,dp3d,phi_i,pnh,exact,&
@@ -571,7 +630,6 @@ implicit none
   !===================================================================================
     real (kind=real_kind), intent(out) :: JacD_ie(nelemd,nlev,np,np)
     real (kind=real_kind), intent(out) :: JacL_ie(nelemd,nlev-1,np,np),JacU_ie(nelemd,nlev-1,np,np)
-    !real (kind=real_kind), intent(in)    :: dp3d(nelemd,np,np,nlev), phi_i(nelemd,np,np,nlevp)
     type (element_t), intent(in) :: elem(nelemd)
     real (kind=real_kind), intent(inout) :: pnh_ie(nelemd,np,np,nlev)
     real (kind=real_kind), intent(in)    :: dt2
@@ -579,8 +637,6 @@ implicit none
 
     ! local
     real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
-    !
-    !elem(ie)%state%dp3d(:,:,:,np1),elem(ie)%state%phinh_i(:,:,:,np1)
     
     integer :: k,l,ie
     !if (exact.eq.1) then ! use exact Jacobian !! OpenACC implementation only for exact=1

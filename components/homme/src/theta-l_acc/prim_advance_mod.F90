@@ -22,8 +22,9 @@ module prim_advance_mod
   use edgetype_mod,       only: EdgeBuffer_t,  EdgeDescriptor_t, edgedescriptor_t
   use element_mod,        only: element_t
   use element_state,      only: max_itercnt_perstep,avg_itercnt,max_itererr_perstep, nu_scale_top
-  use element_ops,        only: get_temperature, set_theta_ref, state0, get_R_star
-  use eos,                only: get_pnh_and_exner,get_theta_from_T,get_phinh,get_dirk_jacobian,get_dirk_jacobian_openacc,get_pnh_and_exner_openacc
+  use element_ops,        only: get_temperature, set_theta_ref, state0, get_R_star,set_theta_ref_openacc
+  use eos,                only: get_pnh_and_exner,get_theta_from_T,get_phinh,get_dirk_jacobian, &
+    get_dirk_jacobian_openacc,get_pnh_and_exner_openacc, get_phinh_openacc1
   use hybrid_mod,         only: hybrid_t
   use hybvcoord_mod,      only: hvcoord_t
   use kinds,              only: iulog, real_kind
@@ -545,15 +546,16 @@ contains
   real (kind=real_kind), dimension(np,np,4) :: lap_s  ! dp3d,theta,w,phi
   real (kind=real_kind), dimension(np,np,2) :: lap_v
   real (kind=real_kind) :: exner0(nlev)
-  real (kind=real_kind) :: heating(np,np,nlev)
-  real (kind=real_kind) :: exner(np,np,nlev)
+  !real (kind=real_kind) :: heating(np,np,nlev)		!not being used 
+  real (kind=real_kind) :: exner_ie(nets:nete,np,np,nlev)
+  real (kind=real_kind) :: exner2(np,np)
   real (kind=real_kind) :: p_i(np,np,nlevp)    ! pressure on interfaces
   real (kind=real_kind) :: dt
   real (kind=real_kind) :: ps_ref(np,np)
 
-  real (kind=real_kind) :: theta_ref(np,np,nlev,nets:nete)
-  real (kind=real_kind) :: phi_ref(np,np,nlevp,nets:nete)
-  real (kind=real_kind) :: dp_ref(np,np,nlev,nets:nete)
+  real (kind=real_kind) :: theta_ref(nets:nete,np,np,nlev)
+  real (kind=real_kind) :: phi_ref(nets:nete,np,np,nlevp)
+  real (kind=real_kind) :: dp_ref(nets:nete,np,np,nlev)
 
   call t_startf('advance_hypervis')
 
@@ -582,13 +584,17 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! compute reference states
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#ifdef OPENACC_HOMME
+!$acc enter data create(exner_ie,dp_ref,phi_ref,theta_ref,exner_ie,vtens,stens,nu_scale_top,exner0)
+!$acc update device(hvcoord,deriv,exner0,edge_g,elem)
+#endif  
   do ie=nets,nete
      ps_ref(:,:) = hvcoord%hyai(1)*hvcoord%ps0 + sum(elem(ie)%state%dp3d(:,:,:,nt),3)
      do k=1,nlev
-        dp_ref(:,:,k,ie) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+        dp_ref(ie,:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
              (hvcoord%hybi(k+1)-hvcoord%hybi(k))*ps_ref(:,:)
      enddo
-
+  enddo
 
 #if 0
      ! phi_ref,theta_ref depend only on ps:
@@ -598,13 +604,27 @@ contains
           exner(:,:,:),dp_ref(:,:,:,ie),phi_ref(:,:,:,ie))
 #endif
 #if 1
-     ! phi_ref depends only on ps, theta_ref depends on dp3d
-     call set_theta_ref(hvcoord,dp_ref(:,:,:,ie),theta_ref(:,:,:,ie))
-     exner(:,:,:)=theta_ref(:,:,:,ie)*dp_ref(:,:,:,ie) ! use as temp array
-     call get_phinh(hvcoord,elem(ie)%state%phis,&
-          exner(:,:,:),dp_ref(:,:,:,ie),phi_ref(:,:,:,ie))
 
-     call set_theta_ref(hvcoord,elem(ie)%state%dp3d(:,:,:,nt),theta_ref(:,:,:,ie))
+#ifdef OPENACC_HOMME
+!$acc update device(dp_ref)
+call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
+!$acc parallel loop gang present(exner_ie,theta_ref,dp_ref) 
+  do ie=nets,nete  
+     exner_ie(ie,:,:,:)=theta_ref(ie,:,:,:)*dp_ref(ie,:,:,:) ! use as temp array
+  enddo
+!$acc end parallel loop
+  call get_phinh_openacc1(hvcoord,elem,nt,exner_ie,dp_ref,phi_ref,nets,nete)
+  call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,2,nt,nets,nete)  
+#else
+  do ie=nets,nete
+     call set_theta_ref(hvcoord,dp_ref(ie,:,:,:),theta_ref(ie,:,:,:))
+     exner_ie(ie,:,:,:)=theta_ref(ie,:,:,:)*dp_ref(ie,:,:,:) ! use as temp array
+     call get_phinh(hvcoord,elem(ie)%state%phis,&
+          exner_ie(ie,:,:,:),dp_ref(ie,:,:,:),phi_ref(ie,:,:,:))
+     call set_theta_ref(hvcoord,elem(ie)%state%dp3d(:,:,:,nt),theta_ref(ie,:,:,:))
+  enddo
+#endif  
+  
 #endif
 #if 0
      ! no reference state, for testing
@@ -615,17 +635,28 @@ contains
 
 
      ! convert vtheta_dp -> theta
+
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(elem)
+#endif 
+  do ie=nets,nete    
      do k=1,nlev
         elem(ie)%state%vtheta_dp(:,:,k,nt)=&
              elem(ie)%state%vtheta_dp(:,:,k,nt)/elem(ie)%state%dp3d(:,:,k,nt)
      enddo
   enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !  hyper viscosity
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   do ic=1,hypervis_subcycle
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,theta_ref,phi_ref,dp_ref)
+#endif   
      do ie=nets,nete
 
 #if (defined COLUMN_OPENMP)
@@ -633,22 +664,28 @@ contains
 #endif
         do k=1,nlev
            elem(ie)%state%vtheta_dp(:,:,k,nt)=elem(ie)%state%vtheta_dp(:,:,k,nt)-&
-                theta_ref(:,:,k,ie)
+                theta_ref(ie,:,:,k)
            elem(ie)%state%phinh_i(:,:,k,nt)=elem(ie)%state%phinh_i(:,:,k,nt)-&
-                phi_ref(:,:,k,ie)
+                phi_ref(ie,:,:,k)
            elem(ie)%state%dp3d(:,:,k,nt)=elem(ie)%state%dp3d(:,:,k,nt)-&
-                dp_ref(:,:,k,ie)
-        enddo
+                dp_ref(ie,:,:,k)
+        enddo       
      enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif      
      
      call biharmonic_wk_theta(elem,stens,vtens,deriv,edge_g,hybrid,nt,nets,nete)
      
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(lap_v,lap_s) present(elem,dp_ref,deriv,nu_scale_top,stens,vtens)
+#endif      
      do ie=nets,nete
         
         ! comptue mean flux
         if (nu_p>0) then
            elem(ie)%derived%dpdiss_ave(:,:,:)=elem(ie)%derived%dpdiss_ave(:,:,:)+&
-                (eta_ave_w*elem(ie)%state%dp3d(:,:,:,nt)+dp_ref(:,:,:,ie))/hypervis_subcycle
+                (eta_ave_w*elem(ie)%state%dp3d(:,:,:,nt)+dp_ref(ie,:,:,:))/hypervis_subcycle
            elem(ie)%derived%dpdiss_biharmonic(:,:,:)=elem(ie)%derived%dpdiss_biharmonic(:,:,:)+&
                 eta_ave_w*stens(:,:,:,1,ie)/hypervis_subcycle
         endif
@@ -680,24 +717,39 @@ contains
               endif
 
            enddo
-
+        enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang present(elem,edge_g,stens,vtens)
+#endif 
+        do ie=nets,nete
            kptr=0;      call edgeVpack_nlyr(edge_g,elem(ie)%desc,vtens(:,:,:,:,ie),2*nlev,kptr,nlyr_tot)
            kptr=2*nlev; call edgeVpack_nlyr(edge_g,elem(ie)%desc,stens(:,:,:,:,ie),ssize,kptr,nlyr_tot)
 
         enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(edge_g)
+#endif
         call t_startf('ahdp_bexchV2')
         call bndry_exchangeV(hybrid,edge_g)
         call t_stopf('ahdp_bexchV2')
 
+#ifdef OPENACC_HOMME
+!$acc update device(edge_g)
+!$acc parallel loop gang present(elem,edge_g,stens,vtens)
+#endif 
         do ie=nets,nete
-
            kptr=0
            call edgeVunpack_nlyr(edge_g,elem(ie)%desc,vtens(:,:,:,:,ie),2*nlev,kptr,nlyr_tot)
            kptr=2*nlev
            call edgeVunpack_nlyr(edge_g,elem(ie)%desc,stens(:,:,:,:,ie),ssize,kptr,nlyr_tot)
-
-
+        enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang vector collapse(2) present(elem,theta_ref,phi_ref,dp_ref,stens,vtens)
+#endif        
+        do ie=nets,nete
            ! apply inverse mass matrix, accumulate tendencies
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k)
@@ -712,15 +764,19 @@ contains
 
               !add ref state back
               elem(ie)%state%vtheta_dp(:,:,k,nt)=elem(ie)%state%vtheta_dp(:,:,k,nt)+&
-                   theta_ref(:,:,k,ie)
+                   theta_ref(ie,:,:,k)
               elem(ie)%state%phinh_i(:,:,k,nt)=elem(ie)%state%phinh_i(:,:,k,nt)+&
-                   phi_ref(:,:,k,ie)
+                   phi_ref(ie,:,:,k)
               elem(ie)%state%dp3d(:,:,k,nt)=elem(ie)%state%dp3d(:,:,k,nt)+&
-                   dp_ref(:,:,k,ie)
+                   dp_ref(ie,:,:,k)
 
            enddo
-
-
+     enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang vector collapse(2) present(elem,stens,vtens)
+#endif 
+     do ie=nets,nete
 
 #if (defined COLUMN_OPENMP)
 !$omp parallel do private(k)
@@ -737,8 +793,12 @@ contains
            elem(ie)%state%phinh_i(:,:,k,nt)=elem(ie)%state%phinh_i(:,:,k,nt) &
                 +stens(:,:,k,4,ie)
         enddo
-
-
+     enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang vector private(p_i,exner2) present(elem,hvcoord,exner0,stens)
+#endif 
+     do ie=nets,nete
         ! apply heating after updating sate.  using updated v gives better results in PREQX model
         !
         ! d(IE)/dt =  exner * d(Theta)/dt + phi d(dp3d)/dt   (Theta = dp3d*cp*theta)
@@ -764,29 +824,37 @@ contains
            ! for w averaging, we didn't compute dissipation at surface, so just use one level
            k2=max(k,nlev)
            ! p(:,:,k) = (p_i(:,:,k) + elem(ie)%state%dp3d(:,:,k,nt)/2)
-           exner(:,:,k)  = ( (p_i(:,:,k) + elem(ie)%state%dp3d(:,:,k,nt)/2) /p0)**kappa
-           if (theta_hydrostatic_mode) then
-              heating(:,:,k)= (elem(ie)%state%v(:,:,1,k,nt)*vtens(:,:,1,k,ie) + &
-                   elem(ie)%state%v(:,:,2,k,nt)*vtens(:,:,2,k,ie) ) / &
-                   (exner(:,:,k)*Cp)
+           exner2(:,:)  = ( (p_i(:,:,k) + elem(ie)%state%dp3d(:,:,k,nt)/2) /p0)**kappa
+           
+           ! Dead code ----
+           !if (theta_hydrostatic_mode) then
+           !   heating(:,:,k)= (elem(ie)%state%v(:,:,1,k,nt)*vtens(:,:,1,k,ie) + &
+           !        elem(ie)%state%v(:,:,2,k,nt)*vtens(:,:,2,k,ie) ) / &
+           !        (exner(:,:,k)*Cp)
 
-           else
-              heating(:,:,k)= (elem(ie)%state%v(:,:,1,k,nt)*vtens(:,:,1,k,ie) + &
-                   elem(ie)%state%v(:,:,2,k,nt)*vtens(:,:,2,k,ie)  +&
-                   (elem(ie)%state%w_i(:,:,k,nt)*stens(:,:,k,3,ie)  +&
-                     elem(ie)%state%w_i(:,:,k2,nt)*stens(:,:,k2,3,ie))/2 ) /  +&
-                   (exner(:,:,k)*Cp)  
-           endif
+           !else
+           !   heating(:,:,k)= (elem(ie)%state%v(:,:,1,k,nt)*vtens(:,:,1,k,ie) + &
+           !        elem(ie)%state%v(:,:,2,k,nt)*vtens(:,:,2,k,ie)  +&
+           !        (elem(ie)%state%w_i(:,:,k,nt)*stens(:,:,k,3,ie)  +&
+           !          elem(ie)%state%w_i(:,:,k2,nt)*stens(:,:,k2,3,ie))/2 ) /  +&
+           !        (exner(:,:,k)*Cp)  
+           !endif
            
            elem(ie)%state%vtheta_dp(:,:,k,nt)=elem(ie)%state%vtheta_dp(:,:,k,nt) &
-                +stens(:,:,k,2,ie)*hvcoord%dp0(k)*exner0(k)/(exner(:,:,k)*elem(ie)%state%dp3d(:,:,k,nt)&
+                +stens(:,:,k,2,ie)*hvcoord%dp0(k)*exner0(k)/(exner2(:,:)*elem(ie)%state%dp3d(:,:,k,nt)&
                 ) ! -heating(:,:,k)
         enddo
         
      enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
   enddo
 
 ! convert vtheta_dp -> theta
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem)
+#endif 
   do ie=nets,nete            
      elem(ie)%state%vtheta_dp(:,:,:,nt)=&
           elem(ie)%state%vtheta_dp(:,:,:,nt)*elem(ie)%state%dp3d(:,:,:,nt)
@@ -795,7 +863,11 @@ contains
      elem(ie)%state%w_i(:,:,nlevp,nt) = (elem(ie)%state%v(:,:,1,nlev,nt)*elem(ie)%derived%gradphis(:,:,1) + &
           elem(ie)%state%v(:,:,2,nlev,nt)*elem(ie)%derived%gradphis(:,:,2))/g
   enddo	
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc update self(elem,edge_g)
+!$acc exit data delete(exner_ie,dp_ref,phi_ref,theta_ref,exner_ie,vtens,stens,nu_scale_top,exner0)
+#endif
 
   call t_stopf('advance_hypervis')
 
