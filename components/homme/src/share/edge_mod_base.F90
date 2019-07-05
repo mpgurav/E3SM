@@ -916,7 +916,7 @@ endif
     integer,              intent(in)   :: ielem
 !    type (EdgeDescriptor_t),intent(in) :: desc
 #ifdef OPENACC_HOMME
-  !$acc routine seq
+  !$acc routine vector
 #endif
 
     ! Local variables
@@ -943,6 +943,9 @@ endif
     iw = nlyr_tot*desc%putmapS(west)
 
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
     do k=1,vlyr
        edge%buf(kptr+k+ie) = v(k) ! East
        edge%buf(kptr+k+is) = v(k) ! South
@@ -955,6 +958,9 @@ endif
         llval=desc%putmapS(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(k)
             end do
@@ -966,6 +972,9 @@ endif
         llval=desc%putmapS(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(k)
             end do
@@ -977,6 +986,9 @@ endif
         llval=desc%putmapS(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(k)
             end do
@@ -988,6 +1000,9 @@ endif
         llval=desc%putmapS(ll)
         if (llval /= -1) then
 !dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
             do k=1,vlyr
                 edge%buf(kptr+k+nlyr_tot*llval)=v(k)
             end do

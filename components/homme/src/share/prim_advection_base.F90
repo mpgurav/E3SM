@@ -546,9 +546,9 @@ OMP_SIMD
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,gradQ_ie,Vstar_ie)
 #endif
-      do ie = nets , nete
+      do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
+          do ie = nets , nete
         ! advance Qdp
-          do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
             ! div( U dp Q),
             gradQ_ie(ie,:,:,1,k) = Vstar_ie(ie,:,:,1,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
             gradQ_ie(ie,:,:,2,k) = Vstar_ie(ie,:,:,2,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
@@ -562,7 +562,6 @@ OMP_SIMD
       call divergence_sphere_openacc(gradQ_ie,deriv,elem,nets,nete,nlev,dp_star_ie)
 
 #ifdef OPENACC_HOMME
-
 !$acc parallel loop gang vector collapse(2) present(elem,dp_star_ie,Qtens_ie,Qtens_biharmonic)
 #endif
       do ie = nets , nete

@@ -1265,9 +1265,9 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,phi_ie,vtemp_ie)
-#endif    
-  do ie=nets,nete !nete     	
-     do k=1,nlev
+#endif         	
+  do k=1,nlev
+     do ie=nets,nete !nete  
         phi_ie(ie,:,:,k) = (elem(ie)%state%phinh_i(:,:,k,n0)+elem(ie)%state%phinh_i(:,:,k+1,n0))/2  ! for diagnostics
 
         ! ================================
@@ -1340,9 +1340,9 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,vgrad_p_ie,vtemp_ie,omega_ie,omega_i_ie)
-#endif     
-  do ie=nets,nete !nete
-     do k=1,nlev
+#endif
+  do k=1,nlev     
+     do ie=nets,nete !nete
         !pi_ie(ie,:,:,k)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
         !vtemp_ie(ie,:,:,:,k) = gradient_sphere( pi_ie(ie,:,:,k), deriv, elem(ie)%Dinv);
         vgrad_p_ie(ie,:,:,k) = elem(ie)%state%v(:,:,1,k,n0)*vtemp_ie(ie,:,:,1,k)+&
@@ -1490,8 +1490,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) private(i,j,dsdx001,dsdy001,v11,v21,dsdx002,dsdy002,v12,v22) present(elem,gradphinh_i_ie,gradw_i_ie,deriv)
 #endif 
-  do ie=nets,nete !nete
-     do k=1,nlevp !one extra iteration for the calculations required afterwards
+  do k=1,nlevp !one extra iteration for the calculations required afterwards
+     do ie=nets,nete !nete
         !gradphinh_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%phinh_i(:,:,k,n0),deriv,elem(ie)%Dinv)   
         !gradw_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%w_i(:,:,k,n0),deriv,elem(ie)%Dinv)
         do j=1,np
@@ -1534,8 +1534,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,v_gradw_i_ie,gradw_i_ie,v_i_ie,w_tens_ie,w_vadv_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
 #endif     
-  do ie=nets,nete !nete      
-     do k=1,nlev        
+  do k=1,nlev
+     do ie=nets,nete !nete      
         v_gradw_i_ie(ie,:,:,k) = v_i_ie(ie,:,:,1,k)*gradw_i_ie(ie,:,:,1,k) + v_i_ie(ie,:,:,2,k)*gradw_i_ie(ie,:,:,2,k)
         ! w - tendency on interfaces 
         w_tens_ie(ie,:,:,k) = (-w_vadv_i_ie(ie,:,:,k) - v_gradw_i_ie(ie,:,:,k))*scale1 - scale2*g*(1-dpnh_dp_i_ie(ie,:,:,k) )
@@ -1586,8 +1586,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,v_theta_ie,v_theta_ie,KE_ie,temp_ie)
 #endif        
-  do ie=nets,nete !nete    
-     do k=1,nlev
+  do k=1,nlev
+     do ie=nets,nete !nete    
         ! theta - tendency on levels
         v_theta_ie(ie,:,:,1,k)=elem(ie)%state%v(:,:,1,k,n0)*elem(ie)%state%vtheta_dp(:,:,k,n0)
         v_theta_ie(ie,:,:,2,k)=elem(ie)%state%v(:,:,2,k,n0)*elem(ie)%state%vtheta_dp(:,:,k,n0)
@@ -1608,8 +1608,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(2) present(elem,theta_tens_ie,theta_vadv_ie,div_v_theta_ie,wvor_ie,gradw_i_ie)
 #endif     
-  do ie=nets,nete !nete            
-     do k=1,nlev
+  do k=1,nlev
+     do ie=nets,nete !nete            
         ! theta - tendency on levels
         
         theta_tens_ie(ie,:,:,k)=(-theta_vadv_ie(ie,:,:,k)-div_v_theta_ie(ie,:,:,k))*scale1
@@ -1628,8 +1628,9 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang vector collapse(4)private(v1,v2,mgrad_ie_tmp1,mgrad_ie_tmp2) present(elem,dpnh_dp_i_ie,gradphinh_i_ie,vtens1_ie,v_vadv_ie,vort_ie,gradKE_ie,vtheta_ie,gradexner_ie,wvor_ie,vtens2_ie)
 #endif
-  do ie=nets,nete !nete            
-     do k=1,nlev 
+  do k=1,nlev 
+     do ie=nets,nete !nete            
+   
         ! special averaging of dpnh/dpi grad(phi) for E conservation
         !mgrad_ie(ie,:,:,1,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,1,k)+ &
         !      dpnh_dp_i_ie(ie,:,:,k+1)*gradphinh_i_ie(ie,:,:,1,k+1))/2
@@ -1941,7 +1942,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! Scale tendencies by inverse mass matrix
      ! ====================================================
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,edge_g,dpnh_dp_i_ie) 
+!$acc parallel loop gang vector collapse(2) present(elem,edge_g,dpnh_dp_i_ie) 
 #endif   
   do ie=nets,nete
      do k=1,nlev
@@ -1952,6 +1953,15 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         elem(ie)%state%v(:,:,1,k,np1)  =elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,1,k,np1)
         elem(ie)%state%v(:,:,2,k,np1)  =elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,2,k,np1)
      end do
+  end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif 
+
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(k) present(elem,edge_g,dpnh_dp_i_ie) 
+#endif   
+  do ie=nets,nete
      k=nlevp
      elem(ie)%state%w_i(:,:,k,np1)    =elem(ie)%rspheremp(:,:)*elem(ie)%state%w_i(:,:,k,np1)
 

@@ -466,7 +466,7 @@ subroutine neighbor_minmax(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh)
    integer :: ie,q, k,kptr
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(min_neigh,max_neigh,edgeMinMax)
+!$acc parallel loop gang present(min_neigh,max_neigh,edgeMinMax)
 #endif    
    do ie=nets,nete
       kptr = 0
@@ -515,7 +515,7 @@ subroutine neighbor_minmax_start(hybrid,edgeMinMax,nets,nete,min_neigh,max_neigh
    integer :: ie,q, k,kptr
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(min_neigh,max_neigh,edgeMinMax)
+!$acc parallel loop gang present(min_neigh,max_neigh,edgeMinMax)
 #endif
    do ie=nets,nete
       kptr = 0
