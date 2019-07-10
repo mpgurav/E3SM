@@ -628,8 +628,8 @@ implicit none
   !  
   ! The rule-of-thumb optimal epsie  is epsie = norm(elem)*sqrt(macheps)
   !===================================================================================
-    real (kind=real_kind), intent(out) :: JacD_ie(nelemd,nlev,np,np)
-    real (kind=real_kind), intent(out) :: JacL_ie(nelemd,nlev-1,np,np),JacU_ie(nelemd,nlev-1,np,np)
+    real (kind=real_kind), intent(out) :: JacD_ie(nlev,np,np,nelemd)
+    real (kind=real_kind), intent(out) :: JacL_ie(nlev,np,np,nelemd),JacU_ie(nlev,np,np,nelemd)
     type (element_t), intent(in) :: elem(nelemd)
     real (kind=real_kind), intent(inout) :: pnh_ie(nelemd,np,np,nlev)
     real (kind=real_kind), intent(in)    :: dt2
@@ -655,29 +655,33 @@ implicit none
         ! add special cases for k==1 and k==nlev+1
           if (k==1) then
 
-            JacL_ie(ie,k,:,:) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
+            JacL_ie(k,:,:,ie) = 0.0
+            JacL_ie(k+1,:,:,ie) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
              ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k+1))
+            ! JacL_ie(k+1,... : because JacL_ie uses "nlev" rather than "nlev-1" becasue of the cusparse call  
 
-            JacU_ie(ie,k,:,:) = -2*(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
+            JacU_ie(k,:,:,ie) = -2*(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
              ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
 
-            JacD_ie(ie,k,:,:) = 1+2*(dt2*g)**2 *pnh_ie(ie,:,:,k)/&
+            JacD_ie(k,:,:,ie) = 1+2*(dt2*g)**2 *pnh_ie(ie,:,:,k)/&
              ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
           
           else if (k.eq.nlev) then 
 
-            JacD_ie(ie,k,:,:) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
+            JacD_ie(k,:,:,ie) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
              +pnh_ie(ie,:,:,k-1)/( (elem(ie)%state%phinh_i(:,:,k-1,np1)-elem(ie)%state%phinh_i(:,:,k,np1))*(1-kappa)))/dp3d_i_ie(ie,:,:,k)
+             
+            JacU_ie(k,:,:,ie) = 0.0
 
           else ! k =2,...,nlev-1
 
-            JacL_ie(ie,k,:,:) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
+            JacL_ie(k+1,:,:,ie) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
              ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k+1))
          
-            JacU_ie(ie,k,:,:) = -(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
+            JacU_ie(k,:,:,ie) = -(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
              ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
 
-            JacD_ie(ie,k,:,:) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
+            JacD_ie(k,:,:,ie) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
              +pnh_ie(ie,:,:,k-1)/( (elem(ie)%state%phinh_i(:,:,k-1,np1)-elem(ie)%state%phinh_i(:,:,k,np1))*(1-kappa)))/dp3d_i_ie(ie,:,:,k)
 
           end if

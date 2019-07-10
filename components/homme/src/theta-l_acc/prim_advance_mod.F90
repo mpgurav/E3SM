@@ -2026,6 +2026,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !===========================================================================================================
   subroutine compute_stage_value_dirk(np1,qn0,dt2,elem,hvcoord,hybrid,&
        deriv,nets,nete,maxiter,itertol)
+       use cusparse
   !===================================================================================
   ! this subroutine solves a stage value equation for a DIRK method which takes the form
   !
@@ -2050,8 +2051,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   !real (kind=real_kind), pointer, dimension(:,:,:)   :: dp3d
   !real (kind=real_kind), pointer, dimension(:,:,:)   :: vtheta_dp
   !real (kind=real_kind), pointer, dimension(:,:)   :: phis
-  real (kind=real_kind) :: JacD(nlev,np,np)  , JacL(nlev-1,np,np)
-  real (kind=real_kind) :: JacU(nlev-1,np,np), JacU2(nlev-2,np,np)
+  real (kind=real_kind) :: JacD(nlev,np,np)  , JacL(nlev,np,np), JacX(nlev,np,np)
+  real (kind=real_kind) :: JacU(nlev,np,np), JacU2(nlev-2,np,np)
   real (kind=real_kind) :: Ipiv(nlev,np,np)
   !real (kind=real_kind) :: pnh(np,np,nlev)     ! nh (nonydro) pressure
   !real (kind=real_kind) :: dp3d_i(np,np,nlevp)
@@ -2070,8 +2071,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   !real (kind=real_kind) :: Jac2D(nlev,np,np)  , Jac2L(nlev-1,np,np)
   !real (kind=real_kind) :: Jac2U(nlev-1,np,np)
 
-  real (kind=real_kind) :: JacD_ie(nelemd,nlev,np,np)  , JacL_ie(nelemd,nlev-1,np,np)
-  real (kind=real_kind) :: JacU_ie(nelemd,nlev-1,np,np), JacU2_ie(nelemd,nlev-2,np,np)
+  real (kind=real_kind) :: JacD_ie(nlev,np,np,nelemd)  , JacL_ie(nlev,np,np,nelemd)
+  real (kind=real_kind) :: JacU_ie(nlev,np,np,nelemd), JacU2_ie(nelemd,nlev-2,np,np)
   !real (kind=real_kind) :: dp3d_ie(nelemd,np,np,nlevp)
   real (kind=real_kind) :: w_n0_ie(nelemd,np,np,nlevp)    
   real (kind=real_kind) :: phi_n0_ie(nelemd,np,np,nlevp) 
@@ -2080,7 +2081,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   real (kind=real_kind) :: dpnh_dp_i_ie(nelemd,np,np,nlevp)
   real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)     ! exner nh pressure    
   real (kind=real_kind) :: Ipiv_ie(nelemd,nlev,np,np)
-  real (kind=real_kind) :: Fn_ie(nelemd,np,np,nlev),x_ie(nelemd,nlev,np,np)
+  real (kind=real_kind) :: Fn_ie(nelemd,np,np,nlev),x_ie(nlev,np,np,nelemd)
   real (kind=real_kind) :: itererr_ie(nelemd)
   real (kind=real_kind) :: norminfr0_ie(nelemd,np,np),norminfJ0_ie(nelemd,np,np)
   real (kind=real_kind) :: itererrtemp_ie(nelemd,np,np)
@@ -2088,14 +2089,20 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 
 
   integer :: i,j,k,l,ie,itercount,info(np,np)
+  
+  integer cu_call_status   
+  type(cusparseHandle) :: handle
+  
   itercountmax=0
   itererrmax=0.d0
+
 
   call t_startf('compute_stage_value_dirk')
 
 #ifdef OPENACC_HOMME
 !$acc update device(hvcoord)
 !$acc enter data create(pnh_ie,exner_ie,dpnh_dp_i_ie,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
+!$acc enter data create(JacU,JacL,JacD,JacX)
 !$acc enter data create(w_n0_ie,phi_n0_ie,itererrtemp_ie,x_ie,maxnorminfJ0r0_ie)
 #endif   
 
@@ -2148,12 +2155,13 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
        do k=1,nlev
         norminfr0_ie(ie,i,j)=max(norminfr0_ie(ie,i,j),abs(Fn_ie(ie,i,j,k)) *dp3d_i_ie(ie,i,j,k))
         if (k.eq.1) then
-          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(ie,k,i,j))+dp3d_i_ie(ie,i,j,k+1))*abs(JacU_ie(ie,k,i,j)))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(k,i,j,ie))+dp3d_i_ie(ie,i,j,k+1))*abs(JacU_ie(k,i,j,ie)))
         elseif (k.eq.nlev) then
-          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(ie,k,i,j))+abs(JacD_ie(ie,k,i,j))*elem(ie)%state%dp3d(i,j,k,np1)))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(k+1,i,j,ie))+abs(JacD_ie(k,i,j,ie))*elem(ie)%state%dp3d(i,j,k,np1)))
+          ! JacL_ie(k+1,... : because JacL_ie uses "nlev" rather than "nlev-1" becasue of the cusparse call
         else
-          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(ie,k,i,j))+dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(ie,k,i,j))+ &
-            dp3d_i_ie(ie,i,j,k+1)*abs(JacU_ie(ie,k,i,j))))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(k+1,i,j,ie))+dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(k,i,j,ie))+ &
+            dp3d_i_ie(ie,i,j,k+1)*abs(JacU_ie(k,i,j,ie))))
         end if
         itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(ie,i,j,k)**2.d0 *dp3d_i_ie(ie,i,j,k)
       end do
@@ -2195,39 +2203,31 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
       do ie=nets,nete
         do i=1,np
           do j=1,np
-            x_ie(ie,1:nlev,i,j) = -Fn_ie(ie,i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
+            x_ie(1:nlev,i,j,ie) = -Fn_ie(ie,i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
           end do
         end do
       end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc update self(x_ie)
+!$acc host_data use_device(JacU_ie,JacL_ie,JacD_ie,x_ie)
 #endif    
-           
-      do ie=nets,nete
-       info(:,:) = 0 
-       JacL = JacL_ie(ie,:,:,:)       
-       JacD = JacD_ie(ie,:,:,:)
-       JacU = JacU_ie(ie,:,:,:)
-       JacU2 = JacU2_ie(ie,:,:,:)
-       do i=1,np
-         do j=1,np        
-           call DGTTRF(nlev, JacL(:,i,j), JacD(:,i,j),JacU(:,i,j),JacU2(:,i,j), Ipiv(:,i,j), info(i,j) )
-           ! Tridiagonal solve
-           call DGTTRS( 'N', nlev,1, JacL(:,i,j), JacD(:,i,j), JacU(:,i,j), JacU2(:,i,j), Ipiv(:,i,j),x_ie(ie,:,i,j), nlev, info(i,j) )
-         end do
-       end do
-     end do ! end do for the ie=nets,nete loop
+
+       cu_call_status = cusparseCreate(handle)  
+       if (cu_call_status /= CUSPARSE_STATUS_SUCCESS) write (*,*) 'cusparseCreate Error:',cu_call_status     
+       cu_call_status = cusparseDgtsvStridedBatch(handle,nlev,JacL_ie,JacD_ie,JacU_ie,x_ie,np*np*nelemd,nlev)
+       if (cu_call_status /= CUSPARSE_STATUS_SUCCESS) write (*,*) 'cusparseDgtsvStridedBatch Error:',cu_call_status
+       cu_call_status = cusparseDestroy(handle)           
+       if (cu_call_status /= CUSPARSE_STATUS_SUCCESS) write (*,*) 'cusparseDestroy Error:',cu_call_status
    
 #ifdef OPENACC_HOMME
-!$acc update device(x_ie)
+!$acc end host_data 
 !$acc parallel loop gang vector collapse(3) present(elem,x_ie)
 #endif        
       do ie=nets,nete
         do i=1,np
           do j=1,np
             ! update approximate solution of phi
-            elem(ie)%state%phinh_i(i,j,1:nlev,np1) = elem(ie)%state%phinh_i(i,j,1:nlev,np1) + x_ie(ie,1:nlev,i,j)
+            elem(ie)%state%phinh_i(i,j,1:nlev,np1) = elem(ie)%state%phinh_i(i,j,1:nlev,np1) + x_ie(1:nlev,i,j,ie)
           end do
         end do
       end do ! end do for the ie=nets,nete loop
@@ -2293,6 +2293,7 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
 #ifdef OPENACC_HOMME
 !$acc exit data delete(pnh_ie,exner_ie,dpnh_dp_i_ie,w_n0_ie,phi_n0_ie,x_ie)
 !$acc exit data delete(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,fn_ie,itererr_ie,maxnorminfJ0r0_ie)
+!$acc exit data delete(JacU,JacL,JacD,JacX)
 #endif 
   end subroutine compute_stage_value_dirk
 
