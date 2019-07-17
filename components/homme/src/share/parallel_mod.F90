@@ -109,7 +109,10 @@ contains
   function initmp(npes_in,npes_stride) result(par)
 #ifdef CAM
     use spmd_utils, only : mpicom
-#endif      
+#endif    
+#ifdef OPENACC_HOMME
+use openacc 
+#endif  
     integer, intent(in), optional ::  npes_in
     integer, intent(in), optional ::  npes_stride
     type (parallel_t) par
@@ -134,6 +137,7 @@ contains
     integer :: max_stride
 #endif
     integer :: npes_cam_stride = 1
+    integer :: my_gpu = 0
     !================================================
     !     Basic MPI initialization
     ! ================================================
@@ -254,7 +258,15 @@ contains
     !  Kind of lame but set this variable to be 1 based 
     !===================================================
     iam = par%rank+1
+#ifdef OPENACC_HOMME
 
+   !call setDevice(par%nprocs,par%rank) 
+   if(par%rank .eq. 0)then
+   my_gpu = 1
+   endif
+   call acc_set_device_num(my_gpu,ACC_DEVICE_NVIDIA) 
+   !write(*,*) iam,' ABORTING WITH ERROR: ',string
+#endif
   end function initmp
 
   ! =========================================================

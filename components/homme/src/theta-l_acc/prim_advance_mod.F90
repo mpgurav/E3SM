@@ -95,8 +95,10 @@ contains
 
     integer :: ie,nm1,n0,np1,nstep,qsplit_stage,k, qn0
     integer :: n,i,j,maxiter
+    integer :: update_elem
  
-
+    update_elem = 0
+    
     call t_startf('prim_advance_exp')
     nm1   = tl%nm1
     n0    = tl%n0
@@ -357,9 +359,7 @@ contains
       call compute_andor_apply_rhs(np1,n0,np1,qn0,a5*dt,elem,hvcoord,hybrid,&
         deriv,nets,nete,compute_diagnostics,eta_ave_w,1d0,ahat5/a5,1d0)
 
-#ifdef OPENACC_HOMME
-!$acc update self(elem)
-#endif 
+      update_elem = 1 
 
       avg_itercnt = ((nstep)*avg_itercnt + max_itercnt_perstep)/(nstep+1)
 
@@ -375,10 +375,18 @@ contains
     ! note:time step computes u(t+1)= u(t*) + RHS.
     ! for consistency, dt_vis = t-1 - t*, so this is timestep method dependent
     ! forward-in-time, hypervis applied to dp3d
-    if (hypervis_order == 2 .and. nu>0) &
+    if (hypervis_order == 2 .and. nu>0) then
          call advance_hypervis(elem,hvcoord,hybrid,deriv,np1,nets,nete,dt_vis,eta_ave_w)
+         update_elem = 1
+    endif
+    
 
-
+#ifdef OPENACC_HOMME
+if (update_elem == 1) then
+update_elem = 0 
+!$acc update self(elem)
+endif
+#endif
 
 
     ! warning: advance_physical_vis currently requires levels that are equally spaced in z
@@ -586,10 +594,16 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef OPENACC_HOMME
 !$acc enter data create(exner_ie,dp_ref,phi_ref,theta_ref,exner_ie,vtens,stens,nu_scale_top,exner0)
-!$acc update device(hvcoord,deriv,exner0,edge_g,elem)
+!!$acc update device(hvcoord,deriv,exner0,edge_g,elem)
+!$acc update device(exner0,deriv,edge_g)
+!$acc parallel loop gang vector present(elem,hvcoord,dp_ref) private(ps_ref)
 #endif  
   do ie=nets,nete
-     ps_ref(:,:) = hvcoord%hyai(1)*hvcoord%ps0 + sum(elem(ie)%state%dp3d(:,:,:,nt),3)
+     ps_ref(:,:) = 0.0
+     do k=1,nlev
+        ps_ref(:,:) = ps_ref(:,:) + elem(ie)%state%dp3d(:,:,k,nt)
+     enddo
+     ps_ref(:,:) = hvcoord%hyai(1)*hvcoord%ps0 + ps_ref(:,:)
      do k=1,nlev
         dp_ref(ie,:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
              (hvcoord%hybi(k+1)-hvcoord%hybi(k))*ps_ref(:,:)
@@ -606,7 +620,8 @@ contains
 #if 1
 
 #ifdef OPENACC_HOMME
-!$acc update device(dp_ref)
+!$acc end parallel loop
+!!$acc update device(dp_ref)
 call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$acc parallel loop gang present(exner_ie,theta_ref,dp_ref) 
   do ie=nets,nete  
@@ -865,7 +880,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   enddo	
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc update self(elem,edge_g)
+!!$acc update self(elem,edge_g)
+!$acc update self(edge_g)
 !$acc exit data delete(exner_ie,dp_ref,phi_ref,theta_ref,exner_ie,vtens,stens,nu_scale_top,exner0)
 #endif
 
@@ -1193,7 +1209,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$acc enter data create(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
 !$acc enter data create(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
 !$acc enter data create(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie)
-!$acc update device(hvcoord,deriv)
+!!$acc update device(hvcoord,deriv)
 #endif
 
 #ifdef OPENACC_HOMME

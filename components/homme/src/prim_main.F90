@@ -207,6 +207,9 @@ program prim_main
 
   if(par%masterproc) print *,"Entering main timestepping loop"
   call t_startf('prim_main_loop')
+#ifdef OPENACC_HOMME  
+!$acc update device(hvcoord)  
+#endif
   do while(tl%nstep < nEndStep)
 #if (defined HORIZ_OPENMP)
      !$OMP PARALLEL NUM_THREADS(hthreads), DEFAULT(SHARED), PRIVATE(ithr,nets,nete,hybrid)

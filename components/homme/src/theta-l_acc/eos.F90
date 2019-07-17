@@ -641,7 +641,8 @@ implicit none
     integer :: k,l,ie
     !if (exact.eq.1) then ! use exact Jacobian !! OpenACC implementation only for exact=1
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector create(dp3d_i_ie) present(elem,JacL_ie,JacD_ie,JacU_ie,pnh_ie)
+!$acc enter data create(dp3d_i_ie)
+!$acc parallel loop gang vector present(dp3d_i_ie) present(elem)
 #endif     
       do ie=nets,nete  
         dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,np1)
@@ -649,7 +650,12 @@ implicit none
         do k=2,nlev
           dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,np1)+elem(ie)%state%dp3d(:,:,k-1,np1))/2
         end do
-  
+      end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang vector collapse(2) present(dp3d_i_ie,elem,JacL_ie,JacD_ie,JacU_ie,pnh_ie)
+#endif     
+      do ie=nets,nete   
         do k=1,nlev
         ! this code will need to change when the equation of state is changed.
         ! add special cases for k==1 and k==nlev+1
@@ -689,6 +695,7 @@ implicit none
       end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
+!$acc exit data delete(dp3d_i_ie)
 #endif      
 
   end subroutine get_dirk_jacobian_openacc

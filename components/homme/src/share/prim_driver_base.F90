@@ -1003,6 +1003,9 @@ contains
     integer :: n0_qdp,np1_qdp,r,nstep_end,nets_in,nete_in
     logical :: compute_diagnostics
 
+#ifdef OPENACC_HOMME  
+!$acc update device(deriv1)  
+#endif
     ! compute timesteps for tracer transport and vertical remap
 
     dt_q      = dt*qsplit
