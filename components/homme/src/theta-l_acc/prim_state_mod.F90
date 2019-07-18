@@ -17,9 +17,9 @@ module prim_state_mod
   use hybvcoord_mod,    only: hvcoord_t
   use global_norms_mod, only: global_integral, linf_snorm, l1_snorm, l2_snorm
   use element_mod,      only: element_t
-  use element_ops,      only: get_field, get_phi
+  use element_ops,      only: get_field, get_phi,get_phi_openacc
   use element_state,    only: max_itercnt_perstep,max_itererr_perstep,avg_itercnt
-  use eos,              only: get_pnh_and_exner
+  use eos,              only: get_pnh_and_exner, get_pnh_and_exner_openacc1
   use viscosity_mod,    only: compute_zeta_C0
   use reduction_mod,    only: parallelmax,parallelmin
   use perf_mod,         only: t_startf, t_stopf
@@ -797,7 +797,7 @@ subroutine prim_energy_halftimes(elem,hvcoord,tl,n,t_before_advance,nets,nete)
 !  
 
     use kinds, only : real_kind
-    use dimensions_mod, only : np, np, nlev,nlevp
+    use dimensions_mod, only : np, np, nlev,nlevp,nelemd
     use hybvcoord_mod, only : hvcoord_t
     use element_mod, only : element_t
     use physical_constants, only : Cp, cpwater_vapor
@@ -811,16 +811,17 @@ subroutine prim_energy_halftimes(elem,hvcoord,tl,n,t_before_advance,nets,nete)
     logical :: t_before_advance
 
     integer :: ie,k,i,j
-    real (kind=real_kind), dimension(np,np,nlev)  :: dpt1  ! delta pressure
     real (kind=real_kind), dimension(np,np)  :: E
-    real (kind=real_kind), dimension(np,np)  :: suml,suml2,v1,v2
+    real (kind=real_kind), dimension(np,np)  :: suml,suml2
     real (kind=real_kind), dimension(np,np,nlev)  :: sumlk, suml2k
-    real (kind=real_kind) :: phi(np,np,nlev)
-    real (kind=real_kind) :: phi_i(np,np,nlevp)  
-    real (kind=real_kind) :: pnh(np,np,nlev)   ! nh nonhyrdo pressure
-    real (kind=real_kind) :: dpnh_dp_i(np,np,nlevp) 
-    real (kind=real_kind) :: exner(np,np,nlev)  ! exner nh pressure
-    real (kind=real_kind) :: pnh_i(np,np,nlevp)  ! pressure on intefaces
+    
+    real (kind=real_kind), dimension(nelemd,np,np,nlev)  :: dpt1_ie  ! delta pressure
+    real (kind=real_kind) :: phi_ie(nelemd,np,np,nlev)
+    real (kind=real_kind) :: phi_i_ie(nelemd,np,np,nlevp)  
+    real (kind=real_kind) :: pnh_ie(nelemd,np,np,nlev)   ! nh nonhyrdo pressure
+    real (kind=real_kind) :: dpnh_dp_i_ie(nelemd,np,np,nlevp) 
+    real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)  ! exner nh pressure
+    real (kind=real_kind) :: pnh_i_ie(nelemd,np,np,nlevp)  ! pressure on intefaces
 
 
     integer:: tmp, t1_qdp   ! the time pointers for Qdp are not the same
@@ -832,24 +833,33 @@ subroutine prim_energy_halftimes(elem,hvcoord,tl,n,t_before_advance,nets,nete)
        t1=tl%np1
        call TimeLevel_Qdp(tl, qsplit, tmp, t1_qdp) !get np1 into t2_qdp
     endif
+#ifdef OPENACC_HOMME
+!$acc enter data create(dpt1_ie,phi_ie,phi_i_ie,pnh_ie,dpnh_dp_i_ie,exner_ie,pnh_i_ie)
+!$acc parallel loop gang vector collapse(2) present(elem,dpt1_ie,hvcoord)
+#endif    
     do ie=nets,nete
        do k=1,nlev
-          dpt1(:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+          dpt1_ie(ie,:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,t1)
-       enddo
-       call get_pnh_and_exner(hvcoord,elem(ie)%state%vtheta_dp(:,:,:,t1),dpt1,&
-            elem(ie)%state%phinh_i(:,:,:,t1),pnh,exner,dpnh_dp_i,pnh_i)
-       call get_phi(elem(ie),phi,phi_i,hvcoord,t1,t1_qdp)
-
-   
+       enddo 
+    enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif    
+    call get_pnh_and_exner_openacc1(hvcoord,elem,dpt1_ie,pnh_ie,exner_ie,dpnh_dp_i_ie,t1,nets,nete,nlev)   
+    call get_phi_openacc(elem,phi_ie,phi_i_ie,hvcoord,t1,t1_qdp,nets,nete)
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector private(suml,suml2,E,sumlk,suml2k) present(elem,phi_ie,dpt1_ie,exner_ie,phi_i_ie,pnh_ie)
+#endif    
+    do ie=nets,nete   
        !   KE   .5 dp/dn U^2
        do k=1,nlev
           E = ( elem(ie)%state%v(:,:,1,k,t1)**2 +  &
                elem(ie)%state%v(:,:,2,k,t1)**2  )/2
-          sumlk(:,:,k) = E*dpt1(:,:,k)
+          sumlk(:,:,k) = E*dpt1_ie(ie,:,:,k)
 
           E=(elem(ie)%state%w_i(:,:,k,t1)**2+elem(ie)%state%w_i(:,:,k+1,t1)**2)/4
-          suml2k(:,:,k) = E*dpt1(:,:,k)
+          suml2k(:,:,k) = E*dpt1_ie(ie,:,:,k)
        enddo
        suml=0
        suml2=0
@@ -866,7 +876,7 @@ subroutine prim_energy_halftimes(elem,hvcoord,tl,n,t_before_advance,nets,nete)
     !   PE   dp/dn PHIs
        suml=0
        do k=1,nlev
-          suml = suml + phi(:,:,k)*dpt1(:,:,k)
+          suml = suml + phi_ie(ie,:,:,k)*dpt1_ie(ie,:,:,k)
        enddo
        elem(ie)%accum%PEner(:,:,n)=suml(:,:)
        
@@ -876,13 +886,17 @@ subroutine prim_energy_halftimes(elem,hvcoord,tl,n,t_before_advance,nets,nete)
        suml2=0
        do k=1,nlev
           suml(:,:)=suml(:,:)+&
-                Cp*elem(ie)%state%vtheta_dp(:,:,k,t1)*exner(:,:,k) 
-          suml2(:,:) = suml2(:,:)+(phi_i(:,:,k+1)-phi_i(:,:,k))*pnh(:,:,k)
+                Cp*elem(ie)%state%vtheta_dp(:,:,k,t1)*exner_ie(ie,:,:,k) 
+          suml2(:,:) = suml2(:,:)+(phi_i_ie(ie,:,:,k+1)-phi_i_ie(ie,:,:,k))*pnh_ie(ie,:,:,k)
        enddo
        elem(ie)%accum%IEner(:,:,n)=suml(:,:) + suml2(:,:) +&
-            pnh_i(:,:,1)* phi_i(:,:,1)
+            pnh_i_ie(ie,:,:,1)* phi_i_ie(ie,:,:,1)
 
-       enddo
+    enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc exit data delete(dpt1_ie,phi_ie,phi_i_ie,pnh_ie,dpnh_dp_i_ie,exner_ie,pnh_i_ie)
+#endif      
     
 end subroutine prim_energy_halftimes
     
@@ -932,7 +946,9 @@ subroutine prim_diag_scalars(elem,hvcoord,tl,n,t_before_advance,nets,nete)
        call TimeLevel_Qdp(tl, qsplit, tmp, t1_qdp) !get np1 into t2_qdp (don't need tmp)
     endif
 
-
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem)private(suml)
+#endif 
     do ie=nets,nete
        do q=1,qsize
           suml=0
@@ -942,7 +958,10 @@ subroutine prim_diag_scalars(elem,hvcoord,tl,n,t_before_advance,nets,nete)
           elem(ie)%accum%Qvar(:,:,q,n)=suml(:,:)
        enddo
     enddo
-    
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc parallel loop gang vector collapse(2) present(elem)private(suml)
+#endif     
     do ie=nets,nete
        do q=1,qsize
           suml=0
@@ -953,7 +972,9 @@ subroutine prim_diag_scalars(elem,hvcoord,tl,n,t_before_advance,nets,nete)
           elem(ie)%accum%Qmass(:,:,q,n)=suml(:,:)
        enddo
     enddo
- 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif 
 
 end subroutine prim_diag_scalars
 end module prim_state_mod

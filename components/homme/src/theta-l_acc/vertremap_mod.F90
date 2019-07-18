@@ -52,6 +52,7 @@ contains
   real (kind=real_kind), dimension(nelemd,np,np,nlev)  :: dp_ie,dp_star_ie
   real (kind=real_kind), dimension(nelemd,np,np,nlevp) :: phi_ref_ie
   real (kind=real_kind), dimension(nelemd,np,np,nlev,5)  :: ttmp_ie
+  real (kind=real_kind), dimension(np,np) :: tmp_arr
 
   call t_startf('vertical_remap')
 
@@ -76,14 +77,19 @@ contains
   !
 #ifdef OPENACC_HOMME
 !$acc enter data create(dp_ie,dp_star_ie, phi_ref_ie, ttmp_ie)
+!$acc parallel loop gang vector present(elem,hvcoord) private(tmp_arr)
 #endif  
    do ie=nets,nete
+     tmp_arr(:,:) = 0.0
+     do k=1,nlev
+        tmp_arr(:,:) = tmp_arr(:,:)+ elem(ie)%state%dp3d(:,:,k,np1)
+     enddo
      ! update final ps_v
-     elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + &
-          sum(elem(ie)%state%dp3d(:,:,:,np1),3)
+     elem(ie)%state%ps_v(:,:,np1) = hvcoord%hyai(1)*hvcoord%ps0 + tmp_arr(:,:)
    enddo  !  ie=nets,nete
 #ifdef OPENACC_HOMME
-!$acc update device(elem,hvcoord)
+!$acc end parallel loop 
+!!$acc update device(elem,hvcoord)
 !$acc parallel loop gang vector collapse(2) present(elem,dp_ie,dp_star_ie,hvcoord) 
 #endif
    do ie=nets,nete         
@@ -199,7 +205,7 @@ contains
 
      endif
 #ifdef OPENACC_HOMME
-!$acc update self(elem)
+!!$acc update self(elem)
 !$acc exit data delete(dp_ie,dp_star_ie, phi_ref_ie, ttmp_ie)
 #endif   
   call t_stopf('vertical_remap')

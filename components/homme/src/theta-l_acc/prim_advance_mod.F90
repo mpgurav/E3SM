@@ -125,13 +125,18 @@ contains
 
 ! default weights for computing mean dynamics fluxes
     eta_ave_w = 1d0/qsplit
-
+#ifdef OPENACC_HOMME
+!!$acc update device(elem) 
+!$acc parallel loop gang vector present(elem)
+#endif
 !   this should not be needed, but in case physics update u without updating w b.c.:
     do ie=nets,nete
        elem(ie)%state%w_i(:,:,nlevp,n0) = (elem(ie)%state%v(:,:,1,nlev,n0)*elem(ie)%derived%gradphis(:,:,1) + &
             elem(ie)%state%v(:,:,2,nlev,n0)*elem(ie)%derived%gradphis(:,:,2))/g
     enddo
- 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif 
 #ifndef CAM
     ! if "prescribed wind" set dynamics explicitly and skip time-integration
     if (prescribed_wind ==1 ) then
@@ -309,7 +314,7 @@ contains
         ahat5*dhat1*dhat2*dhat3 + dhat1*dhat2*dhat3*dhat4)/(-ahat3*ahat4*ahat5)
 
 #ifdef OPENACC_HOMME
-!$acc update device(elem) 
+!!$acc update device(elem) 
 #endif
 
       call compute_andor_apply_rhs(np1,n0,n0,qn0,a1*dt,elem,hvcoord,hybrid,&
@@ -384,7 +389,7 @@ contains
 #ifdef OPENACC_HOMME
 if (update_elem == 1) then
 update_elem = 0 
-!$acc update self(elem)
+!!$acc update self(elem)
 endif
 #endif
 

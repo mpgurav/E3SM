@@ -56,14 +56,14 @@ module element_ops
   use parallel_mod,   only: abortmp
   use physical_constants, only : p0, Cp, Rgas, Rwater_vapor, Cpwater_vapor, kappa, g, dd_pi
   use control_mod,    only: use_moisture, theta_hydrostatic_mode
-  use eos,            only: get_pnh_and_exner, get_phinh
+  use eos,            only: get_pnh_and_exner, get_phinh, get_pnh_and_exner_openacc1
   implicit none
   private
 
   type(elem_state_t), dimension(:), allocatable :: state0 ! storage for save_initial_state routine
 
   public get_field, get_state
-  public get_temperature, get_phi, get_R_star
+  public get_temperature, get_phi, get_R_star,get_phi_openacc
   public set_thermostate, set_state, set_state_i, set_elem_state
   public set_forcing_rayleigh_friction, set_theta_ref, set_theta_ref_openacc
   public copy_state, tests_finalize
@@ -298,7 +298,78 @@ contains
     
   end subroutine
 
-       
+  subroutine get_phi_openacc(elem,phi_ie,phi_i_ie,hvcoord,nt,ntQ,nets,nete)
+    implicit none
+    
+    type (element_t),       intent(in)  :: elem(:)
+    type (hvcoord_t),       intent(in)  :: hvcoord
+    real (kind=real_kind),  intent(out) :: phi_ie(nelemd,np,np,nlev)
+    real (kind=real_kind),  intent(out) :: phi_i_ie(nelemd,np,np,nlevp)
+    integer,                intent(in)  :: nt
+    integer,                intent(in)  :: ntQ, nets,nete
+    
+    real (kind=real_kind), dimension(nelemd,np,np,nlev) :: dp_ie
+    real (kind=real_kind) :: pnh_ie(nelemd,np,np,nlev)
+    real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)
+    real (kind=real_kind) :: temp(np,np)
+    real (kind=real_kind) :: dpnh_dp_i_ie(nelemd,np,np,nlevp)
+    integer :: k,ie
+
+#ifdef OPENACC_HOMME
+!$acc enter data create(dp_ie,pnh_ie,exner_ie,dpnh_dp_i_ie)
+!$acc parallel loop gang vector present(elem)   
+#endif    
+    do ie=nets,nete
+    	phi_i_ie(ie,:,:,:) = elem(ie)%state%phinh_i(:,:,:,nt)
+    enddo
+#ifdef OPENACC_HOMME
+!!$acc end parallel loop
+#endif     
+    if(theta_hydrostatic_mode) then
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,dp_ie,hvcoord)   
+#endif    
+      do ie=nets,nete
+        do k=1,nlev
+          dp_ie(ie,:,:,k) = ( hvcoord%hyai(k+1) - hvcoord%hyai(k) )*hvcoord%ps0 + &
+               (hvcoord%hybi(k+1)-hvcoord%hybi(k))*elem(ie)%state%ps_v(:,:,nt)
+        enddo
+      enddo 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif        
+      call get_pnh_and_exner_openacc1(hvcoord,elem,dp_ie,pnh_ie,exner_ie,dpnh_dp_i_ie,nt,nets,nete,nlev) 
+      !do ie=nets,nete 
+      !  call get_pnh_and_exner(hvcoord,elem(ie)%state%vtheta_dp(:,:,:,nt),&
+      !      dp_ie(ie,:,:,:),elem(ie)%state%phinh_i(:,:,:,nt),pnh_ie(ie,:,:,:),exner_ie(ie,:,:,:),dpnh_dp_i_ie(ie,:,:,:))
+      !enddo 
+       ! traditional Hydrostatic integral
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2)private(temp) present(elem,pnh_ie,exner_ie,phi_i_ie)   
+#endif       
+       do ie=nets,nete
+         do k=nlev,1,-1
+            temp(:,:) = Rgas*elem(ie)%state%vtheta_dp(:,:,k,nt)*exner_ie(ie,:,:,k)/pnh_ie(ie,:,:,k)
+            phi_i_ie(ie,:,:,k)=phi_i_ie(ie,:,:,k+1)+temp(:,:)
+         enddo
+       enddo 
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif         
+    endif
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,pnh_ie,phi_i_ie)   
+#endif       
+    do ie=nets,nete
+       do k=1,nlev
+          phi_ie(ie,:,:,k) = (phi_i_ie(ie,:,:,k)+phi_i_ie(ie,:,:,k+1))/2
+       enddo
+    enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc exit data delete(dp_ie,pnh_ie,exner_ie,dpnh_dp_i_ie)
+#endif     
+  end subroutine       
 
 
 

@@ -973,7 +973,7 @@ contains
     !       tl%nm1   tracers:  t    dynamics:  t+(qsplit-1)*dt
     !       tl%n0    time t + dt_q
 
-    use control_mod,        only: statefreq, ftype, qsplit, rsplit, disable_diagnostics
+    use control_mod,        only: statefreq, ftype, qsplit, rsplit, disable_diagnostics, tstep_type
     use hybvcoord_mod,      only: hvcoord_t
     use parallel_mod,       only: abortmp
     use prim_state_mod,     only: prim_printstate, prim_diag_scalars, prim_energy_halftimes
@@ -1004,6 +1004,9 @@ contains
     logical :: compute_diagnostics
 
 #ifdef OPENACC_HOMME  
+    if(tstep_type .ne. 7) then
+	call abortmp('This OpenACC implementation only supports tstep_type=7.')
+    endif
 !$acc update device(deriv1)  
 #endif
     ! compute timesteps for tracer transport and vertical remap
@@ -1025,6 +1028,9 @@ contains
 
     ! compute scalar diagnostics if currently active
     if (compute_diagnostics) then
+#ifdef OPENACC_HOMME
+!$acc update device(elem)
+#endif    
       call t_startf("prim_diag_scalars")
       call prim_diag_scalars(elem,hvcoord,tl,3,.true.,nets,nete)
       call t_stopf("prim_diag_scalars")
@@ -1032,6 +1038,9 @@ contains
       call t_startf("prim_energy_halftimes")
       call prim_energy_halftimes(elem,hvcoord,tl,3,.true.,nets,nete)
       call t_stopf("prim_energy_halftimes")
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+#endif      
     endif
 
 
@@ -1051,7 +1060,9 @@ contains
     !   ftype=-1: do not apply forcing
 
     call applyCAMforcing_ps(elem,hvcoord,tl%n0,n0_qdp,dt_remap,nets,nete)
-
+#ifdef OPENACC_HOMME
+!$acc update device(elem)
+#endif
     if (compute_diagnostics) then
     ! E(1) Energy after CAM forcing
       call t_startf("prim_energy_halftimes")
@@ -1064,6 +1075,9 @@ contains
     endif
 
     ! initialize dp3d from ps
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,hvcoord)
+#endif    
     do ie=nets,nete
        do k=1,nlev
           elem(ie)%state%dp3d(:,:,k,tl%n0)=&
@@ -1071,16 +1085,17 @@ contains
                ( hvcoord%hybi(k+1) - hvcoord%hybi(k) )*elem(ie)%state%ps_v(:,:,tl%n0)
        enddo
     enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop 
+#endif
 #if (USE_OPENACC)
 !    call TimeLevel_Qdp( tl, qsplit, n0_qdp, np1_qdp)
     call t_startf("copy_qdp_h2d")
     call copy_qdp_h2d( elem , n0_qdp )
     call t_stopf("copy_qdp_h2d")
 #endif
-
+ 
     if (.not. single_column) then 
-
       ! Loop over rsplit vertically lagrangian timesiteps
       call t_startf("prim_step_rX")
       call prim_step(elem, hybrid, nets, nete, dt, tl, hvcoord, compute_diagnostics)
@@ -1108,7 +1123,7 @@ contains
       enddo
 
     endif
-    
+     
     ! defer final timelevel update until after remap and diagnostics
     !compute timelevels for tracers (no longer the same as dynamics)
     call TimeLevel_Qdp( tl, qsplit, n0_qdp, np1_qdp)
@@ -1140,6 +1155,9 @@ contains
     ! Q    (mixing ratio)
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     call t_startf("prim_run_subcyle_diags")
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem,hvcoord)private(dp_np1)
+#endif    
     do ie=nets,nete
 #if (defined COLUMN_OPENMP)
        !$omp parallel do default(shared), private(k,q,dp_np1)
@@ -1153,6 +1171,9 @@ contains
           enddo
        enddo
     enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop 
+#endif        
     call t_stopf("prim_run_subcyle_diags")
 
     ! now we have:
@@ -1179,7 +1200,9 @@ contains
     !   u(nm1)   dynamics at  t+dt_remap - dt       
     !   u(n0)    dynamics at  t+dt_remap
     !   u(np1)   undefined
-
+#ifdef OPENACC_HOMME
+!$acc update self(elem)
+#endif 
     ! ============================================================
     ! Print some diagnostic information
     ! ============================================================
@@ -1234,11 +1257,14 @@ contains
     logical :: compute_diagnostics
 
     dt_q = dt*qsplit
- 
+
     ! ===============
     ! initialize mean flux accumulation variables and save some variables at n0
     ! for use by advection
     ! ===============
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem)
+#endif    
     do ie=nets,nete
       elem(ie)%derived%eta_dot_dpdn=0     ! mean vertical mass flux
       elem(ie)%derived%vn0=0              ! mean horizontal mass flux
@@ -1252,7 +1278,9 @@ contains
       end if
       elem(ie)%derived%dp(:,:,:)=elem(ie)%state%dp3d(:,:,:,tl%n0)
     enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
 !applyCAMforcing_dp3d should be glued to the call of prim_advance_exp
 !energy diagnostics is broken for ftype 3,4
     call ApplyCAMforcing_dp3d(elem,hvcoord,tl%n0,dt,nets,nete)
@@ -1298,7 +1326,6 @@ contains
       call t_stopf("PAT_remap")
     end if
     call t_stopf("prim_step_advec")
-
   end subroutine prim_step
   
   
