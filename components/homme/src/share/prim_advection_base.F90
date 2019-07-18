@@ -171,16 +171,17 @@ contains
     !                            it is not needed
     ! Also: save a copy of div(U dp) in derived%div(:,:,:,1), which will be DSS'd
     !       and a DSS'ed version stored in derived%div(:,:,:,2)
-
+#ifdef OPENACC_HOMME
+!!$acc update device(elem,deriv,edge_g)
+!$acc update device(deriv,edge_g)
+#endif
     call t_startf('precomput_divdp')
     call precompute_divdp( elem , hybrid , deriv , dt , nets , nete , n0_qdp )   
     call t_stopf('precomput_divdp')
 
     !rhs_multiplier is for obtaining dp_tracers at each stage:
     !dp_tracers(stage) = dp - rhs_multiplier*dt*divdp_proj
-#ifdef OPENACC_HOMME
-!$acc update device(elem,deriv,edge_g,hvcoord)
-#endif
+
     call t_startf('euler_step_0')
     rhs_multiplier = 0
     call euler_step( np1_qdp , n0_qdp  , dt/2 , elem , hvcoord , hybrid , deriv , nets , nete , DSSdiv_vdp_ave , rhs_multiplier )
@@ -195,14 +196,14 @@ contains
     rhs_multiplier = 2
     call euler_step( np1_qdp , np1_qdp , dt/2 , elem , hvcoord , hybrid , deriv , nets , nete , DSSomega       , rhs_multiplier )
     call t_stopf('euler_step_2')
-#ifdef OPENACC_HOMME
-!$acc update self(elem)
-#endif
+
     !to finish the 2D advection step, we need to average the t and t+2 results to get a second order estimate for t+1.
     call t_startf('qdp_tavg')
     call qdp_time_avg( elem , rkstage , n0_qdp , np1_qdp , limiter_option , nu_p , nets , nete )
     call t_stopf('qdp_tavg')
-
+#ifdef OPENACC_HOMME
+!!$acc update self(elem)
+#endif
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !  Dissipation
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -235,13 +236,18 @@ contains
     real(kind=real_kind) , intent(in   ) :: dt
     integer              , intent(in   ) :: nets , nete , n0_qdp
     integer :: ie , k
-
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector collapse(2) present(elem)
+#endif
     do ie = nets , nete 
       do k = 1 , nlev   ! div( U dp Q),
         elem(ie)%derived%divdp(:,:,k) = divergence_sphere(elem(ie)%derived%vn0(:,:,:,k),deriv,elem(ie))
         elem(ie)%derived%divdp_proj(:,:,k) = elem(ie)%derived%divdp(:,:,k)
       enddo  
     enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif    
   end subroutine precompute_divdp
 !-----------------------------------------------------------------------------
 !-----------------------------------------------------------------------------
@@ -254,12 +260,17 @@ contains
     integer :: ie,q,k
     real(kind=real_kind) :: rrkstage
 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem)
+#endif
     do ie=nets,nete
       elem(ie)%state%Qdp(:,:,:,1:qsize,np1_qdp) =               &
                    ( elem(ie)%state%Qdp(:,:,:,1:qsize,n0_qdp) + &
                      (rkstage-1)*elem(ie)%state%Qdp(:,:,:,1:qsize,np1_qdp) ) / rkstage
     enddo
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
   end subroutine qdp_time_avg
 
 !-----------------------------------------------------------------------------
