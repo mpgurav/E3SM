@@ -1218,7 +1218,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,vtheta_ie)
+!$acc parallel loop gang present(elem,vtheta_ie)
 #endif
   do ie=nets,nete !nete
      !dp3d  => elem(ie)%state%dp3d(:,:,:,n0)
@@ -1235,7 +1235,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,n0,nets,nete,nlev)
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,dp3d_i_ie)
+!$acc parallel loop gang private(k) present(elem,dp3d_i_ie)
 #endif    
   do ie=nets,nete !nete
      dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,n0) 
@@ -1249,7 +1249,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,v_i_ie,dp3d_i_ie)
+!$acc parallel loop gang private(k) present(elem,v_i_ie,dp3d_i_ie)
 #endif    
   do ie=nets,nete !nete
      ! special averaging for velocity for energy conservation
@@ -1285,10 +1285,10 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,phi_ie,vtemp_ie)
+!$acc parallel loop gang collapse(2) present(elem,phi_ie,vtemp_ie)
 #endif         	
-  do k=1,nlev
-     do ie=nets,nete !nete  
+  do ie=nets,nete !nete  
+    do k=1,nlev
         phi_ie(ie,:,:,k) = (elem(ie)%state%phinh_i(:,:,k,n0)+elem(ie)%state%phinh_i(:,:,k+1,n0))/2  ! for diagnostics
 
         ! ================================
@@ -1605,10 +1605,10 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! ================================================   
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,v_theta_ie,v_theta_ie,KE_ie,temp_ie)
-#endif        
-  do k=1,nlev
-     do ie=nets,nete !nete    
+!$acc parallel loop gang collapse(2) present(elem,v_theta_ie,v_theta_ie,KE_ie,temp_ie)
+#endif 
+  do ie=nets,nete !nete        
+     do k=1,nlev   
         ! theta - tendency on levels
         v_theta_ie(ie,:,:,1,k)=elem(ie)%state%v(:,:,1,k,n0)*elem(ie)%state%vtheta_dp(:,:,k,n0)
         v_theta_ie(ie,:,:,2,k)=elem(ie)%state%v(:,:,2,k,n0)*elem(ie)%state%vtheta_dp(:,:,k,n0)
@@ -1627,12 +1627,11 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
     call gradient_sphere_openacc(exner_ie,deriv,elem,nets,nete,nlev,gradexner_ie)
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,theta_tens_ie,theta_vadv_ie,div_v_theta_ie,wvor_ie,gradw_i_ie)
+!$acc parallel loop gang collapse(2) present(elem,theta_tens_ie,theta_vadv_ie,div_v_theta_ie,wvor_ie,gradw_i_ie)
 #endif     
-  do k=1,nlev
-     do ie=nets,nete !nete            
+  do ie=nets,nete !nete 
+     do k=1,nlev           
         ! theta - tendency on levels
-        
         theta_tens_ie(ie,:,:,k)=(-theta_vadv_ie(ie,:,:,k)-div_v_theta_ie(ie,:,:,k))*scale1
 
         ! w vorticity correction term       
@@ -1647,7 +1646,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(4)private(v1,v2,mgrad_ie_tmp1,mgrad_ie_tmp2) present(elem,dpnh_dp_i_ie,gradphinh_i_ie,vtens1_ie,v_vadv_ie,vort_ie,gradKE_ie,vtheta_ie,gradexner_ie,wvor_ie,vtens2_ie)
+!$acc parallel loop gang collapse(2)private(v1,v2,mgrad_ie_tmp1,mgrad_ie_tmp2) present(elem,dpnh_dp_i_ie,gradphinh_i_ie,vtens1_ie,v_vadv_ie,vort_ie,gradKE_ie,vtheta_ie,gradexner_ie,wvor_ie,vtens2_ie)
 #endif
   do k=1,nlev 
      do ie=nets,nete !nete            
@@ -1857,9 +1856,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
              
    endif 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,vtens1_ie,vtens2_ie,w_tens_ie,theta_tens_ie,phi_tens_ie,divdp_ie,eta_dot_dpdn_ie)
-#endif  
-     
+!$acc parallel loop gang collapse(2) present(elem,vtens1_ie,vtens2_ie,w_tens_ie,theta_tens_ie,phi_tens_ie,divdp_ie,eta_dot_dpdn_ie)
+#endif
   do ie=nets,nete !nete
      do k=1,nlev
         elem(ie)%state%v(:,:,1,k,np1) = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%v(:,:,1,k,nm1) &
@@ -1963,7 +1961,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! Scale tendencies by inverse mass matrix
      ! ====================================================
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,edge_g,dpnh_dp_i_ie) 
+!$acc parallel loop gang collapse(2) present(elem,edge_g,dpnh_dp_i_ie) 
 #endif   
   do ie=nets,nete
      do k=1,nlev
@@ -2130,7 +2128,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,nets,nete,nlev)
 
 #ifdef OPENACC_HOMME
-!$acc update self(pnh_ie,exner_ie,dpnh_dp_i_ie)
+!!$acc update self(pnh_ie,exner_ie,dpnh_dp_i_ie)
 #endif   
   
 
@@ -2196,8 +2194,9 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
   end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc update self(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
-!$acc update self(w_n0_ie,phi_n0_ie,itererrtemp_ie)
+!!$acc update self(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie)
+!$acc update self(itererr_ie)
+!!$acc update self(w_n0_ie,phi_n0_ie,itererrtemp_ie)
 !$acc update self(maxnorminfJ0r0_ie) 
 #endif   
   

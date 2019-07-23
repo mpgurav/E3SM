@@ -94,7 +94,7 @@ endif
    endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,deriv,stens,vtens)
+!$acc parallel loop gang collapse(2) present(elem,deriv,stens,vtens)
 #endif 
    do ie=nets,nete
 

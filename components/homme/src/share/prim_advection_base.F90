@@ -555,10 +555,10 @@ OMP_SIMD
  
     do q = 1 , qsize
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,gradQ_ie,Vstar_ie)
+!$acc parallel loop gang collapse(2) present(elem,gradQ_ie,Vstar_ie)
 #endif
-      do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
-          do ie = nets , nete
+      do ie = nets , nete
+         do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
         ! advance Qdp
             ! div( U dp Q),
             gradQ_ie(ie,:,:,1,k) = Vstar_ie(ie,:,:,1,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
@@ -600,7 +600,7 @@ OMP_SIMD
           endif  
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,Qtens_ie)
+!$acc parallel loop gang collapse(2) present(elem,Qtens_ie)
 #endif
       do ie = nets , nete
           ! apply mass matrix, overwrite np1 with solution:

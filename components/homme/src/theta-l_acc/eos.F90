@@ -193,86 +193,110 @@ implicit none
   integer             , intent(in) :: nlev
   !   local
 
-  real (kind=real_kind) :: p_over_exner(np,np,nlev)
-  real (kind=real_kind) :: pi(np,np,nlev)
-  real (kind=real_kind) :: exner_i(np,np,nlevp) 
-  real (kind=real_kind) :: pnh_i(np,np,nlevp)  
-  real (kind=real_kind) :: dp3d_i(np,np,nlevp)
-  real (kind=real_kind) :: pi_i(np,np,nlevp) 
+  real (kind=real_kind) :: p_over_exner_ie(nelemd,np,np,nlev)
+  real (kind=real_kind) :: pi_ie(nelemd,np,np,nlev)
+  !real (kind=real_kind) :: exner_i(np,np,nlevp) 
+  real (kind=real_kind) :: pnh_i_ie(nelemd,np,np,nlevp)  
+  real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: pi_i_ie(nelemd,np,np,nlevp) 
   integer :: i,j,k,k2,ie
   ! hydrostatic pressure
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(p_over_exner,pi,exner_i,pnh_i,dp3d_i,pi_i) present(elem,pnh,exner,dpnh_dp_i,hvcoord)   
+!$acc enter data create(p_over_exner_ie,pi_ie,pnh_i_ie,dp3d_i_ie,pi_i_ie)
+!$acc parallel loop gang vector present(elem,dpnh_dp_i,hvcoord,pi_ie,pi_i_ie)   
 #endif
   do ie=nets,nete   
-    pi_i(:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
+    pi_i_ie(ie,:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
     do k=1,nlev
-       pi_i(:,:,k+1)=pi_i(:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)
+       pi_i_ie(ie,:,:,k+1)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)
     enddo
     do k=1,nlev
-       pi(:,:,k)=pi_i(:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
+       pi_ie(ie,:,:,k)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
     enddo
-
+  end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif 
 
     if (theta_hydrostatic_mode) then
-       ! hydrostatic pressure
-       exner(ie,:,:,:)  = (pi/p0)**kappa
-       pnh(ie,:,:,:) = pi ! copy hydrostatic pressure into output variable
-       dpnh_dp_i(ie,:,:,:) = 1
-       !if (present(pnh_i_out)) then  
-       !  pnh_i_out=pi_i 
-       !endif
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(pnh,exner,dpnh_dp_i,pi_ie)   
+#endif
+      do ie=nets,nete 
+         ! hydrostatic pressure
+         exner(ie,:,:,:)  = (pi_ie(ie,:,:,:)/p0)**kappa
+         pnh(ie,:,:,:) = pi_ie(ie,:,:,:) ! copy hydrostatic pressure into output variable
+         dpnh_dp_i(ie,:,:,:) = 1
+         !if (present(pnh_i_out)) then  
+         !  pnh_i_out=pi_i 
+         !endif
+      end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif       
     else
 !==============================================================
 !  non-hydrostatic EOS
 !==============================================================
-
-    do k=1,nlev
-       p_over_exner(:,:,k) = Rgas*elem(ie)%state%vtheta_dp(:,:,k,n0)/(elem(ie)%state%phinh_i(:,:,k,n0)-elem(ie)%state%phinh_i(:,:,k+1,n0))   
-       pnh(ie,:,:,k) = p0 * (p_over_exner(:,:,k)/p0)**(1/(1-kappa))
-       exner(ie,:,:,k) =  pnh(ie,:,:,k)/ p_over_exner(:,:,k)
-    enddo
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! boundary terms
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  
-     pnh_i(:,:,1) = pi_i(:,:,1)   ! hydrostatic ptop    
-     ! surface boundary condition pnh_i determined by w equation to enforce
-     ! w b.c.  This is computed in the RHS calculation.  Here, we use
-     ! an approximation (hydrostatic) so that dpnh/dpi = 1
-     pnh_i(:,:,nlevp) = pnh(ie,:,:,nlev) + elem(ie)%state%dp3d(:,:,nlev,n0)/2
-     ! extrapolote NH perturbation:
-     !pnh_i(:,:,nlevp) = pi_i(:,:,nlevp) + (3*(pnh(:,:,nlev)-pi(:,:,nlev)) - (pnh(:,:,nlev-1)-pi(:,:,nlev-1)) )/2
-     ! compute d(pnh)/d(pi) at interfaces
-     ! use one-sided differences at boundaries
-
-
-     dp3d_i(:,:,1) = elem(ie)%state%dp3d(:,:,1,n0)
-     dp3d_i(:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,n0)
-     do k=2,nlev
-        dp3d_i(:,:,k)=(elem(ie)%state%dp3d(:,:,k,n0)+elem(ie)%state%dp3d(:,:,k-1,n0))/2
-     end do
-
-     dpnh_dp_i(ie,:,:,1)  = 2*(pnh(ie,:,:,1)-pnh_i(:,:,1))/dp3d_i(:,:,1)
-     dpnh_dp_i(ie,:,:,nlevp)  = 2*(pnh_i(:,:,nlevp)-pnh(ie,:,:,nlev))/dp3d_i(:,:,nlevp)
-     do k=2,nlev
-        dpnh_dp_i(ie,:,:,k) = (pnh(ie,:,:,k)-pnh(ie,:,:,k-1))/dp3d_i(:,:,k)        
-     end do
-   
-
-     !if (present(pnh_i_out)) then
-     !   ! boundary values already computed.  interior only:
-     !    do k=2,nlev
-     !      pnh_i(:,:,k)=(hvcoord%d_etam(k)*pnh(:,:,k)+hvcoord%d_etam(k-1)*pnh(:,:,k-1))/&
-     !           (hvcoord%d_etai(k)*2)
-     !   enddo
-     !   pnh_i_out=pnh_i    
-     !endif
-  endif ! hydrostatic/nonhydrostatic version
-  end do
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,pnh,exner,dpnh_dp_i,p_over_exner_ie)   
+#endif
+    do ie=nets,nete 
+       do k=1,nlev
+          p_over_exner_ie(ie,:,:,k) = Rgas*elem(ie)%state%vtheta_dp(:,:,k,n0)/(elem(ie)%state%phinh_i(:,:,k,n0)-elem(ie)%state%phinh_i(:,:,k+1,n0))   
+          pnh(ie,:,:,k) = p0 * (p_over_exner_ie(ie,:,:,k)/p0)**(1/(1-kappa))
+          exner(ie,:,:,k) =  pnh(ie,:,:,k)/ p_over_exner_ie(ie,:,:,k)
+       enddo
+      end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
+#endif 
+       
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! boundary terms
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(elem,pnh,dpnh_dp_i,pnh_i_ie,dp3d_i_ie,pi_i_ie)   
+#endif
+     do ie=nets,nete  
+       pnh_i_ie(ie,:,:,1) = pi_i_ie(ie,:,:,1)   ! hydrostatic ptop    
+       ! surface boundary condition pnh_i determined by w equation to enforce
+       ! w b.c.  This is computed in the RHS calculation.  Here, we use
+       ! an approximation (hydrostatic) so that dpnh/dpi = 1
+       pnh_i_ie(ie,:,:,nlevp) = pnh(ie,:,:,nlev) + elem(ie)%state%dp3d(:,:,nlev,n0)/2
+       ! extrapolote NH perturbation:
+       !pnh_i(:,:,nlevp) = pi_i(:,:,nlevp) + (3*(pnh(:,:,nlev)-pi(:,:,nlev)) - (pnh(:,:,nlev-1)-pi(:,:,nlev-1)) )/2
+       ! compute d(pnh)/d(pi) at interfaces
+       ! use one-sided differences at boundaries
+
+
+       dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,n0)
+       dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,n0)
+       do k=2,nlev
+          dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,n0)+elem(ie)%state%dp3d(:,:,k-1,n0))/2
+       end do
+
+       dpnh_dp_i(ie,:,:,1)  = 2*(pnh(ie,:,:,1)-pnh_i_ie(ie,:,:,1))/dp3d_i_ie(ie,:,:,1)
+       dpnh_dp_i(ie,:,:,nlevp)  = 2*(pnh_i_ie(ie,:,:,nlevp)-pnh(ie,:,:,nlev))/dp3d_i_ie(ie,:,:,nlevp)
+       do k=2,nlev
+          dpnh_dp_i(ie,:,:,k) = (pnh(ie,:,:,k)-pnh(ie,:,:,k-1))/dp3d_i_ie(ie,:,:,k)        
+       end do
+
+       !if (present(pnh_i_out)) then
+       !   ! boundary values already computed.  interior only:
+       !    do k=2,nlev
+       !      pnh_i(:,:,k)=(hvcoord%d_etam(k)*pnh(:,:,k)+hvcoord%d_etam(k-1)*pnh(:,:,k-1))/&
+       !           (hvcoord%d_etai(k)*2)
+       !   enddo
+       !   pnh_i_out=pnh_i    
+       !endif
+    
+     end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+!$acc exit data delete(p_over_exner_ie,pi_ie,pnh_i_ie,dp3d_i_ie,pi_i_ie)
 #endif     
-  
+  endif ! hydrostatic/nonhydrostatic version
   end subroutine get_pnh_and_exner_openacc
 
 subroutine get_pnh_and_exner_openacc1(hvcoord,elem,vtheta_dp,pnh,exner,dpnh_dp_i,n0,nets,nete,nlev)

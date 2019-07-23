@@ -1257,6 +1257,109 @@ endif
   end subroutine edgeVunpack_nlyr
 
 
+  subroutine edgeVunpack_nlyr_buildlist(edge,desc,v,vlyr,kptr,nlyr_tot)
+    use dimensions_mod, only : np, max_corner_elem
+    use control_mod, only : north, south, east, west, neast, nwest, seast, swest
+    type (EdgeBuffer_t),         intent(in)  :: edge
+
+    integer,               intent(in)  :: vlyr,nlyr_tot
+    real (kind=real_kind), intent(inout) :: v(np,np,vlyr)
+    type (EdgeDescriptor_t)  :: desc
+#ifdef OPENACC_HOMME
+  !$acc routine vector 
+#endif
+!$dir assume_aligned v:64
+    integer,               intent(in)  :: kptr
+
+
+    ! Local
+    integer :: i,k,ll,iptr
+    integer :: is,ie,in,iw
+    integer :: ks,ke,kblock
+    integer :: getmapL
+
+    ! for nlyr_tot, dont use edge%nlyr, since some threads may be ahead of this thread
+    ! and will change edge%nlyr and start packing into the send buffer
+
+    is = nlyr_tot*desc%getmapP(south)
+    ie = nlyr_tot*desc%getmapP(east)
+    in = nlyr_tot*desc%getmapP(north)
+    iw = nlyr_tot*desc%getmapP(west)
+
+!dir$ ivdep
+    do k=1,vlyr
+       iptr=np*(kptr+k-1)
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif       
+       do i=1,np
+          v(i  ,1  ,k) = v(i  ,1  ,k)+edge%receive(iptr+is+i) ! South
+          v(i  ,np ,k) = v(i  ,np ,k)+edge%receive(iptr+in+i) ! North
+          v(1  ,i  ,k) = v(1  ,i  ,k)+edge%receive(iptr+iw+i) ! West
+          v(np ,i  ,k) = v(np ,i  ,k)+edge%receive(iptr+ie+i) ! East
+       enddo
+    enddo
+
+! SWEST
+    do ll=swest,swest+max_corner_elem-1
+        getmapL = desc%getmapP(ll)
+        if(getmapL /= -1) then 
+!dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
+            do k=1,vlyr
+                v(1  ,1 ,k)=v(1 ,1 ,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
+            enddo
+        endif
+    end do
+
+! SEAST
+    do ll=swest+max_corner_elem,swest+2*max_corner_elem-1
+        getmapL = desc%getmapP(ll)
+        if(getmapL /= -1) then 
+!dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
+            do k=1,vlyr
+                v(np ,1 ,k)=v(np,1 ,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
+            enddo
+        endif
+    end do
+
+! NEAST
+    do ll=swest+3*max_corner_elem,swest+4*max_corner_elem-1
+        getmapL = desc%getmapP(ll)
+        if(getmapL /= -1) then 
+!dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
+            do k=1,vlyr
+                v(np ,np,k)=v(np,np,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
+            enddo
+        endif
+    end do
+
+! NWEST
+    do ll=swest+2*max_corner_elem,swest+3*max_corner_elem-1
+        getmapL = desc%getmapP(ll)
+        if(getmapL /= -1) then 
+!dir$ ivdep
+#ifdef OPENACC_HOMME
+  !$acc loop vector 
+#endif
+            do k=1,vlyr
+                v(1  ,np,k)=v(1 ,np,k)+edge%receive((kptr+k-1)+nlyr_tot*getmapL+1)
+            enddo
+        endif
+    end do
+
+
+  end subroutine edgeVunpack_nlyr_buildlist
+
+
   subroutine edgeVunpackVert(edge,v,ielem)
     use control_mod, only : north, south, east, west, neast, nwest, seast, swest
     use dimensions_mod, only : np, max_corner_elem, ne
