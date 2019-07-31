@@ -183,9 +183,9 @@ implicit none
 !   
   type (hvcoord_t),     intent(in)  :: hvcoord             ! hybrid vertical coordinate struct
   type (element_t), intent(in) :: elem(nelemd)
-  real (kind=real_kind), intent(out) :: pnh(nelemd,np,np,nlev)        ! nh nonhyrdo pressure
-  real (kind=real_kind), intent(out) :: dpnh_dp_i(nelemd,np,np,nlevp) ! d(pnh) / d(pi)
-  real (kind=real_kind), intent(out) :: exner(nelemd,np,np,nlev)      ! exner nh pressure
+  real (kind=real_kind), intent(out) :: pnh(np,np,nlev,nelemd)        ! nh nonhyrdo pressure
+  real (kind=real_kind), intent(out) :: dpnh_dp_i(np,np,nlevp,nelemd) ! d(pnh) / d(pi)
+  real (kind=real_kind), intent(out) :: exner(np,np,nlev,nelemd)      ! exner nh pressure
   !real (kind=real_kind), intent(out), optional :: pnh_i_out(np,np,nlevp)  ! pnh on interfaces
   integer             , intent(in) :: n0
   integer             , intent(in) :: nets 
@@ -193,25 +193,28 @@ implicit none
   integer             , intent(in) :: nlev
   !   local
 
-  real (kind=real_kind) :: p_over_exner_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: pi_ie(nelemd,np,np,nlev)
+  real (kind=real_kind) :: p_over_exner_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: pi_ie(np,np,nlev,nelemd)
   !real (kind=real_kind) :: exner_i(np,np,nlevp) 
-  real (kind=real_kind) :: pnh_i_ie(nelemd,np,np,nlevp)  
-  real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
-  real (kind=real_kind) :: pi_i_ie(nelemd,np,np,nlevp) 
-  integer :: i,j,k,k2,ie
+  real (kind=real_kind) :: pnh_i_ie(np,np,nlevp,nelemd)  
+  real (kind=real_kind) :: dp3d_i_ie(np,np,nlevp,nelemd)
+  real (kind=real_kind) :: pi_i_ie(np,np,nlevp,nelemd) 
+  integer :: i,j,k,k2,ie, tmp_gangs
+  
+  !tmp_gangs = (nete-nets)*nlev
+  !write(*,*) 'tmp_gangs , nete, nets, nlev',tmp_gangs , nete, nets, nlev
   ! hydrostatic pressure
 #ifdef OPENACC_HOMME
 !$acc enter data create(p_over_exner_ie,pi_ie,pnh_i_ie,dp3d_i_ie,pi_i_ie)
 !$acc parallel loop gang vector present(elem,dpnh_dp_i,hvcoord,pi_ie,pi_i_ie)   
 #endif
   do ie=nets,nete   
-    pi_i_ie(ie,:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
+    pi_i_ie(:,:,1,ie)=hvcoord%hyai(1)*hvcoord%ps0
     do k=1,nlev
-       pi_i_ie(ie,:,:,k+1)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)
+       pi_i_ie(:,:,k+1,ie)=pi_i_ie(:,:,k,ie) + elem(ie)%state%dp3d(:,:,k,n0)
     enddo
     do k=1,nlev
-       pi_ie(ie,:,:,k)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
+       pi_ie(:,:,k,ie)=pi_i_ie(:,:,k,ie) + elem(ie)%state%dp3d(:,:,k,n0)/2
     enddo
   end do
 #ifdef OPENACC_HOMME
@@ -224,9 +227,9 @@ implicit none
 #endif
       do ie=nets,nete 
          ! hydrostatic pressure
-         exner(ie,:,:,:)  = (pi_ie(ie,:,:,:)/p0)**kappa
-         pnh(ie,:,:,:) = pi_ie(ie,:,:,:) ! copy hydrostatic pressure into output variable
-         dpnh_dp_i(ie,:,:,:) = 1
+         exner(:,:,:,ie)  = (pi_ie(:,:,:,ie)/p0)**kappa
+         pnh(:,:,:,ie) = pi_ie(:,:,:,ie) ! copy hydrostatic pressure into output variable
+         dpnh_dp_i(:,:,:,ie) = 1
          !if (present(pnh_i_out)) then  
          !  pnh_i_out=pi_i 
          !endif
@@ -239,15 +242,25 @@ implicit none
 !  non-hydrostatic EOS
 !==============================================================
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,pnh,exner,dpnh_dp_i,p_over_exner_ie)   
+!$acc parallel loop gang present(elem,pnh,exner,dpnh_dp_i,p_over_exner_ie) vector_length(np*np) 
 #endif
     do ie=nets,nete 
        do k=1,nlev
-          p_over_exner_ie(ie,:,:,k) = Rgas*elem(ie)%state%vtheta_dp(:,:,k,n0)/(elem(ie)%state%phinh_i(:,:,k,n0)-elem(ie)%state%phinh_i(:,:,k+1,n0))   
-          pnh(ie,:,:,k) = p0 * (p_over_exner_ie(ie,:,:,k)/p0)**(1/(1-kappa))
-          exner(ie,:,:,k) =  pnh(ie,:,:,k)/ p_over_exner_ie(ie,:,:,k)
+          !p_over_exner_ie(:,:,k,ie) = Rgas*elem(ie)%state%vtheta_dp(:,:,k,n0)/(elem(ie)%state%phinh_i(:,:,k,n0)-elem(ie)%state%phinh_i(:,:,k+1,n0))   
+          !pnh(:,:,k,ie) = p0 * (p_over_exner_ie(:,:,k,ie)/p0)**(1/(1-kappa))
+          !exner(:,:,k,ie) =  pnh(:,:,k,ie)/ p_over_exner_ie(:,:,k,ie)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+          do i=1,np
+             do j=1,np
+                p_over_exner_ie(i,j,k,ie) = Rgas*elem(ie)%state%vtheta_dp(i,j,k,n0)/(elem(ie)%state%phinh_i(i,j,k,n0)-elem(ie)%state%phinh_i(i,j,k+1,n0))   
+                pnh(i,j,k,ie) = p0 * (p_over_exner_ie(i,j,k,ie)/p0)**(1/(1-kappa))
+                exner(i,j,k,ie) =  pnh(i,j,k,ie)/ p_over_exner_ie(i,j,k,ie)
+             end do
+          end do
        enddo
-      end do
+    end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif 
@@ -259,27 +272,27 @@ implicit none
 !$acc parallel loop gang vector present(elem,pnh,dpnh_dp_i,pnh_i_ie,dp3d_i_ie,pi_i_ie)   
 #endif
      do ie=nets,nete  
-       pnh_i_ie(ie,:,:,1) = pi_i_ie(ie,:,:,1)   ! hydrostatic ptop    
+       pnh_i_ie(:,:,1,ie) = pi_i_ie(:,:,1,ie)   ! hydrostatic ptop    
        ! surface boundary condition pnh_i determined by w equation to enforce
        ! w b.c.  This is computed in the RHS calculation.  Here, we use
        ! an approximation (hydrostatic) so that dpnh/dpi = 1
-       pnh_i_ie(ie,:,:,nlevp) = pnh(ie,:,:,nlev) + elem(ie)%state%dp3d(:,:,nlev,n0)/2
+       pnh_i_ie(:,:,nlevp,ie) = pnh(:,:,nlev,ie) + elem(ie)%state%dp3d(:,:,nlev,n0)/2
        ! extrapolote NH perturbation:
        !pnh_i(:,:,nlevp) = pi_i(:,:,nlevp) + (3*(pnh(:,:,nlev)-pi(:,:,nlev)) - (pnh(:,:,nlev-1)-pi(:,:,nlev-1)) )/2
        ! compute d(pnh)/d(pi) at interfaces
        ! use one-sided differences at boundaries
 
 
-       dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,n0)
-       dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,n0)
+       dp3d_i_ie(:,:,1,ie) = elem(ie)%state%dp3d(:,:,1,n0)
+       dp3d_i_ie(:,:,nlevp,ie) = elem(ie)%state%dp3d(:,:,nlev,n0)
        do k=2,nlev
-          dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,n0)+elem(ie)%state%dp3d(:,:,k-1,n0))/2
+          dp3d_i_ie(:,:,k,ie)=(elem(ie)%state%dp3d(:,:,k,n0)+elem(ie)%state%dp3d(:,:,k-1,n0))/2
        end do
 
-       dpnh_dp_i(ie,:,:,1)  = 2*(pnh(ie,:,:,1)-pnh_i_ie(ie,:,:,1))/dp3d_i_ie(ie,:,:,1)
-       dpnh_dp_i(ie,:,:,nlevp)  = 2*(pnh_i_ie(ie,:,:,nlevp)-pnh(ie,:,:,nlev))/dp3d_i_ie(ie,:,:,nlevp)
+       dpnh_dp_i(:,:,1,ie)  = 2*(pnh(:,:,1,ie)-pnh_i_ie(:,:,1,ie))/dp3d_i_ie(:,:,1,ie)
+       dpnh_dp_i(:,:,nlevp,ie)  = 2*(pnh_i_ie(:,:,nlevp,ie)-pnh(:,:,nlev,ie))/dp3d_i_ie(:,:,nlevp,ie)
        do k=2,nlev
-          dpnh_dp_i(ie,:,:,k) = (pnh(ie,:,:,k)-pnh(ie,:,:,k-1))/dp3d_i_ie(ie,:,:,k)        
+          dpnh_dp_i(:,:,k,ie) = (pnh(:,:,k,ie)-pnh(:,:,k-1,ie))/dp3d_i_ie(:,:,k,ie)        
        end do
 
        !if (present(pnh_i_out)) then
@@ -765,65 +778,82 @@ implicit none
     real (kind=real_kind), intent(out) :: JacD_ie(nlev,np,np,nelemd)
     real (kind=real_kind), intent(out) :: JacL_ie(nlev,np,np,nelemd),JacU_ie(nlev,np,np,nelemd)
     type (element_t), intent(in) :: elem(nelemd)
-    real (kind=real_kind), intent(inout) :: pnh_ie(nelemd,np,np,nlev)
+    real (kind=real_kind), intent(inout) :: pnh_ie(np,np,nlev,nelemd)
     real (kind=real_kind), intent(in)    :: dt2
     integer, intent(in)    :: np1,nets,nete
 
     ! local
-    real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
+    real (kind=real_kind) :: dp3d_i_ie(np,np,nlevp,nelemd)
     
-    integer :: k,l,ie
+    integer :: k,l,ie,i,j
     !if (exact.eq.1) then ! use exact Jacobian !! OpenACC implementation only for exact=1
 #ifdef OPENACC_HOMME
 !$acc enter data create(dp3d_i_ie)
 !$acc parallel loop gang vector present(dp3d_i_ie) present(elem)
 #endif     
       do ie=nets,nete  
-        dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,np1)
-        dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,np1)
+        dp3d_i_ie(:,:,1,ie) = elem(ie)%state%dp3d(:,:,1,np1)
+        dp3d_i_ie(:,:,nlevp,ie) = elem(ie)%state%dp3d(:,:,nlev,np1)
         do k=2,nlev
-          dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,np1)+elem(ie)%state%dp3d(:,:,k-1,np1))/2
+          dp3d_i_ie(:,:,k,ie)=(elem(ie)%state%dp3d(:,:,k,np1)+elem(ie)%state%dp3d(:,:,k-1,np1))/2
         end do
       end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc parallel loop gang vector collapse(2) present(dp3d_i_ie,elem,JacL_ie,JacD_ie,JacU_ie,pnh_ie)
+!$acc parallel loop gang present(dp3d_i_ie,elem,JacL_ie,JacD_ie,JacU_ie,pnh_ie)
 #endif     
       do ie=nets,nete   
         do k=1,nlev
         ! this code will need to change when the equation of state is changed.
         ! add special cases for k==1 and k==nlev+1
           if (k==1) then
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+           do i=1,np
+             do j=1,np
+                JacL_ie(k,i,j,ie) = 0.0
+                JacL_ie(k+1,i,j,ie) = -(dt2*g)**2*pnh_ie(i,j,k,ie)/&
+                  ((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)*dp3d_i_ie(i,j,k+1,ie))
+                ! JacL_ie(k+1,... : because JacL_ie uses "nlev" rather than "nlev-1" becasue of the cusparse call  
 
-            JacL_ie(k,:,:,ie) = 0.0
-            JacL_ie(k+1,:,:,ie) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
-             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k+1))
-            ! JacL_ie(k+1,... : because JacL_ie uses "nlev" rather than "nlev-1" becasue of the cusparse call  
+                JacU_ie(k,i,j,ie) = -2*(dt2*g)**2 * pnh_ie(i,j,k,ie)/&
+                  ((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)*dp3d_i_ie(i,j,k,ie))
 
-            JacU_ie(k,:,:,ie) = -2*(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
-             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
-
-            JacD_ie(k,:,:,ie) = 1+2*(dt2*g)**2 *pnh_ie(ie,:,:,k)/&
-             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
+                JacD_ie(k,i,j,ie) = 1+2*(dt2*g)**2 *pnh_ie(i,j,k,ie)/&
+                  ((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)*dp3d_i_ie(i,j,k,ie)) 
+             end do
+           end do
           
           else if (k.eq.nlev) then 
-
-            JacD_ie(k,:,:,ie) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
-             +pnh_ie(ie,:,:,k-1)/( (elem(ie)%state%phinh_i(:,:,k-1,np1)-elem(ie)%state%phinh_i(:,:,k,np1))*(1-kappa)))/dp3d_i_ie(ie,:,:,k)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+           do i=1,np
+             do j=1,np
+                JacD_ie(k,i,j,ie) = 1+(dt2*g)**2 *(pnh_ie(i,j,k,ie)/((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)) &
+             +pnh_ie(i,j,k-1,ie)/( (elem(ie)%state%phinh_i(i,j,k-1,np1)-elem(ie)%state%phinh_i(i,j,k,np1))*(1-kappa)))/dp3d_i_ie(i,j,k,ie)
              
-            JacU_ie(k,:,:,ie) = 0.0
+                JacU_ie(k,i,j,ie) = 0.0 
+             end do
+           end do
 
           else ! k =2,...,nlev-1
-
-            JacL_ie(k+1,:,:,ie) = -(dt2*g)**2*pnh_ie(ie,:,:,k)/&
-             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k+1))
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+           do i=1,np
+             do j=1,np
+                JacL_ie(k+1,i,j,ie) = -(dt2*g)**2*pnh_ie(i,j,k,ie)/&
+                  ((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)*dp3d_i_ie(i,j,k+1,ie))
          
-            JacU_ie(k,:,:,ie) = -(dt2*g)**2 * pnh_ie(ie,:,:,k)/&
-             ((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)*dp3d_i_ie(ie,:,:,k))
+                JacU_ie(k,i,j,ie) = -(dt2*g)**2 * pnh_ie(i,j,k,ie)/&
+                  ((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)*dp3d_i_ie(i,j,k,ie))
 
-            JacD_ie(k,:,:,ie) = 1+(dt2*g)**2 *(pnh_ie(ie,:,:,k)/((elem(ie)%state%phinh_i(:,:,k,np1)-elem(ie)%state%phinh_i(:,:,k+1,np1))*(1-kappa)) &
-             +pnh_ie(ie,:,:,k-1)/( (elem(ie)%state%phinh_i(:,:,k-1,np1)-elem(ie)%state%phinh_i(:,:,k,np1))*(1-kappa)))/dp3d_i_ie(ie,:,:,k)
-
+                JacD_ie(k,i,j,ie) = 1+(dt2*g)**2 *(pnh_ie(i,j,k,ie)/((elem(ie)%state%phinh_i(i,j,k,np1)-elem(ie)%state%phinh_i(i,j,k+1,np1))*(1-kappa)) &
+                  +pnh_ie(i,j,k-1,ie)/( (elem(ie)%state%phinh_i(i,j,k-1,np1)-elem(ie)%state%phinh_i(i,j,k,np1))*(1-kappa)))/dp3d_i_ie(i,j,k,ie) 
+             end do
+           end do
           end if
         end do
       end do

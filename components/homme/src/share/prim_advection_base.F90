@@ -318,11 +318,12 @@ contains
   real(kind=real_kind), dimension(np,np  ,nlev                ) :: dp,dp_star
   real(kind=real_kind), dimension(np,np  ,nlev,qsize,nets:nete) :: Qtens_biharmonic
   
-  real(kind=real_kind), dimension(nelemd,np,np,nlev) :: dpdissk_ie 
-  real(kind=real_kind), dimension(nelemd,np,np,2,nlev) :: gradQ_ie 
-  real(kind=real_kind), dimension(nelemd,np,np,2,nlev) :: vstar_ie 
-  real(kind=real_kind), dimension(nelemd,np,np   ,nlev) :: qtens_ie 
-  real(kind=real_kind), dimension(nelemd,np,np   ,nlev) :: dp_ie, dp_star_ie 
+  real(kind=real_kind), dimension(np,np,nlev,nelemd) :: dpdissk_ie 
+  real(kind=real_kind), dimension(np,np,2,nlev,nelemd) :: gradQ_ie 
+  real(kind=real_kind), dimension(np,np,2,nlev,nelemd) :: vstar_ie 
+  real(kind=real_kind), dimension(np,np,nlev,nelemd) :: qtens_ie 
+  real(kind=real_kind), dimension(np,np,nlev,nelemd) :: dp_ie 
+  real(kind=real_kind), dimension(np,np,nlev,nelemd) :: dp_star_ie 
       
   real(kind=real_kind), pointer, dimension(:,:,:)               :: DSSvar
   integer :: ie,q,i,j,k, kptr
@@ -339,7 +340,7 @@ contains
 #ifdef OPENACC_HOMME
 !!$acc update device(elem,deriv,edge_g,hvcoord)
 !$acc enter data copyin(edgeAdvQminmax)
-!$acc enter data create(qtens_biharmonic,qmin,qmax)
+!$acc enter data create(qtens_biharmonic,qmin,qmax,dp_ie)
 !$acc enter data create(dpdissk_ie,gradQ_ie, Vstar_ie, qtens_ie, dp_star_ie)
 #endif   
   if ( limiter_option == 8 .or. limiter_option == 9 ) then
@@ -372,20 +373,25 @@ contains
     !
     ! initialize dp, and compute Q from Qdp (and store Q in Qtens_biharmonic)
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector  create(dp_ie) present(Qtens_biharmonic,elem,qmin,qmax)
+!$acc parallel loop gang collapse(2) present(Qtens_biharmonic,elem,qmin,qmax,dp_ie)
 #endif     
     do ie = nets , nete
       ! add hyperviscosity to RHS.  apply to Q at timelevel n0, Qdp(n0)/dp
 OMP_SIMD
       do k = 1 , nlev    !  Loop index added with implicit inversion (AAM)
-        dp_ie(ie,:,:,k) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier*dt*elem(ie)%derived%divdp_proj(:,:,k)
+        dp_ie(:,:,k,ie) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier*dt*elem(ie)%derived%divdp_proj(:,:,k)
       enddo
-#if (defined COLUMN_OPENMP)
-!$omp parallel do private(q,k) collapse(2)
+    enddo
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
 #endif
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang vector present(Qtens_biharmonic,elem,qmin,qmax,dp_ie)
+#endif     
+    do ie = nets , nete
       do q = 1 , qsize
         do k=1,nlev
-          Qtens_biharmonic(:,:,k,q,ie) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp)/dp_ie(ie,:,:,k)
+          Qtens_biharmonic(:,:,k,q,ie) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp)/dp_ie(:,:,k,ie)
           if ( rhs_multiplier == 1 ) then
              ! for this stage, we skip neighbor_minmax() call, but update
              ! qmin/qmax with any new local extrema:
@@ -480,7 +486,7 @@ OMP_SIMD
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   call t_startf('eus_2d_advec') 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,Vstar_ie,dpdissk_ie,qmin) create(dp_ie)
+!$acc parallel loop gang collapse(2) present(elem,Vstar_ie,dpdissk_ie,qmin,dp_ie)
 #endif
   do ie = nets , nete
     ! note: eta_dot_dpdn is actually dimension nlev+1, but nlev+1 data is
@@ -493,17 +499,17 @@ OMP_SIMD
     do k = 1 , nlev    !  Loop index added (AAM)
       ! derived variable divdp_proj() (DSS'd version of divdp) will only be correct on 2nd and 3rd stage
       ! but that's ok because rhs_multiplier=0 on the first stage:
-      dp_ie(ie,:,:,k) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier * dt * elem(ie)%derived%divdp_proj(:,:,k)
-      Vstar_ie(ie,:,:,1,k) = elem(ie)%derived%vn0(:,:,1,k) / dp_ie(ie,:,:,k)
-      Vstar_ie(ie,:,:,2,k) = elem(ie)%derived%vn0(:,:,2,k) / dp_ie(ie,:,:,k)
+      dp_ie(:,:,k,ie) = elem(ie)%derived%dp(:,:,k) - rhs_multiplier * dt * elem(ie)%derived%divdp_proj(:,:,k)
+      Vstar_ie(:,:,1,k,ie) = elem(ie)%derived%vn0(:,:,1,k) / dp_ie(:,:,k,ie)
+      Vstar_ie(:,:,2,k,ie) = elem(ie)%derived%vn0(:,:,2,k) / dp_ie(:,:,k,ie)
 
       if ( limiter_option == 8 .or. limiter_option == 9 ) then
         ! Note that the term dpdissk is independent of Q
         ! UN-DSS'ed dp at timelevel n0+1:
-        dpdissk_ie(ie,:,:,k) = dp_ie(ie,:,:,k) - dt * elem(ie)%derived%divdp(:,:,k)
+        dpdissk_ie(:,:,k,ie) = dp_ie(:,:,k,ie) - dt * elem(ie)%derived%divdp(:,:,k)
         if ( nu_p > 0 .and. rhs_viss /= 0 ) then
           ! add contribution from UN-DSS'ed PS dissipation
-          dpdissk_ie(ie,:,:,k) = dpdissk_ie(ie,:,:,k) - rhs_viss * dt * nu_q &
+          dpdissk_ie(:,:,k,ie) = dpdissk_ie(:,:,k,ie) - rhs_viss * dt * nu_q &
                            * elem(ie)%derived%dpdiss_biharmonic(:,:,k) / elem(ie)%spheremp(:,:)
         endif
         ! IMPOSE ZERO THRESHOLD.  do this here so it can be turned off for
@@ -561,8 +567,8 @@ OMP_SIMD
          do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
         ! advance Qdp
             ! div( U dp Q),
-            gradQ_ie(ie,:,:,1,k) = Vstar_ie(ie,:,:,1,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
-            gradQ_ie(ie,:,:,2,k) = Vstar_ie(ie,:,:,2,k) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
+            gradQ_ie(:,:,1,k,ie) = Vstar_ie(:,:,1,k,ie) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
+            gradQ_ie(:,:,2,k,ie) = Vstar_ie(:,:,2,k,ie) * elem(ie)%state%Qdp(:,:,k,q,n0_qdp)
             !dp_star_ie(ie,:,:,k) = divergence_sphere( gradQ_ie(ie,:,:,:) , deriv , elem(ie) ) ! calculated separately outside
           enddo
       enddo ! ie loop
@@ -573,15 +579,15 @@ OMP_SIMD
       call divergence_sphere_openacc(gradQ_ie,deriv,elem,nets,nete,nlev,dp_star_ie)
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,dp_star_ie,Qtens_ie,Qtens_biharmonic)
+!$acc parallel loop gang present(elem,dp_star_ie,Qtens_ie,Qtens_biharmonic)
 #endif
       do ie = nets , nete
         ! advance Qdp
           do k = 1 , nlev  !  dp_star used as temporary instead of divdp (AAM)
             ! div( U dp Q),
-            Qtens_ie(ie,:,:,k) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp) - dt * dp_star_ie(ie,:,:,k)
+            Qtens_ie(:,:,k,ie) = elem(ie)%state%Qdp(:,:,k,q,n0_qdp) - dt * dp_star_ie(:,:,k,ie)
             ! optionally add in hyperviscosity computed above:
-            if ( rhs_viss /= 0 ) Qtens_ie(ie,:,:,k) = Qtens_ie(ie,:,:,k) + Qtens_biharmonic(:,:,k,q,ie)
+            if ( rhs_viss /= 0 ) Qtens_ie(:,:,k,ie) = Qtens_ie(:,:,k,ie) + Qtens_biharmonic(:,:,k,q,ie)
           enddo
       enddo ! ie loop
 #ifdef OPENACC_HOMME
@@ -607,7 +613,7 @@ OMP_SIMD
           ! dont do this earlier, since we allow np1_qdp == n0_qdp
           ! and we dont want to overwrite n0_qdp until we are done using it
           do k = 1 , nlev
-            elem(ie)%state%Qdp(:,:,k,q,np1_qdp) = elem(ie)%spheremp(:,:) * Qtens_ie(ie,:,:,k)
+            elem(ie)%state%Qdp(:,:,k,q,np1_qdp) = elem(ie)%spheremp(:,:) * Qtens_ie(:,:,k,ie)
           enddo
       enddo ! ie loop
 #ifdef OPENACC_HOMME
@@ -648,7 +654,7 @@ OMP_SIMD
 !$acc update self(edge_g)
 !!$acc update self(qmin,qmax)
 !$acc exit data delete(qtens_biharmonic,edgeAdvQminmax)
-!$acc exit data delete(qmin, qmax)
+!$acc exit data delete(qmin, qmax, dp_ie)
 !$acc exit data delete(dpdissk_ie,gradq_ie, vstar_ie, qtens_ie, dp_star_ie)  
 #endif
 

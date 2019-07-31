@@ -157,9 +157,9 @@ contains
     integer             , intent(in) :: n0   
 
     !real (kind=real_kind), intent(in) :: v(np,np,2,nlev)
-    real (kind=real_kind), intent(in) :: eta_dot_dp_deta(nelemd,np,np,nlevp)
+    real (kind=real_kind), intent(in) :: eta_dot_dp_deta(np,np,nlevp,nelemd)
     !real (kind=real_kind), intent(in) :: dp(np,np,nlev)
-    real (kind=real_kind), intent(out) :: v_vadv(nelemd,np,np,2,nlev)
+    real (kind=real_kind), intent(out) :: v_vadv(np,np,2,nlev,nelemd)
     ! ========================
     ! Local Variables
     ! ========================
@@ -178,9 +178,9 @@ contains
   do ie=nets,nete !nete
     !
     k=1
-    facp            = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k+1)/elem(ie)%state%dp3d(:,:,k,n0)
-    v_vadv(ie,:,:,1,k)   = facp(:,:)*(elem(ie)%state%v(:,:,1,k+1,n0)- elem(ie)%state%v(:,:,1,k,n0))
-    v_vadv(ie,:,:,2,k)   = facp(:,:)*(elem(ie)%state%v(:,:,2,k+1,n0)- elem(ie)%state%v(:,:,2,k,n0))
+    facp            = 0.5_real_kind*eta_dot_dp_deta(:,:,k+1,ie)/elem(ie)%state%dp3d(:,:,k,n0)
+    v_vadv(:,:,1,k,ie)   = facp(:,:)*(elem(ie)%state%v(:,:,1,k+1,n0)- elem(ie)%state%v(:,:,1,k,n0))
+    v_vadv(:,:,2,k,ie)   = facp(:,:)*(elem(ie)%state%v(:,:,2,k+1,n0)- elem(ie)%state%v(:,:,2,k,n0))
     ! ===========================================================
     ! vertical advection
     ! 1 < k < nlev case:
@@ -188,11 +188,11 @@ contains
     
     !
     do k=2,nlev-1
-       facp(:,:)   = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k+1)/elem(ie)%state%dp3d(:,:,k,n0)
-       facm(:,:)   = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k)/elem(ie)%state%dp3d(:,:,k,n0)
-       v_vadv(ie,:,:,1,k)=facp*(elem(ie)%state%v(:,:,1,k+1,n0)- elem(ie)%state%v(:,:,1,k,n0)) + & 
+       facp(:,:)   = 0.5_real_kind*eta_dot_dp_deta(:,:,k+1,ie)/elem(ie)%state%dp3d(:,:,k,n0)
+       facm(:,:)   = 0.5_real_kind*eta_dot_dp_deta(:,:,k,ie)/elem(ie)%state%dp3d(:,:,k,n0)
+       v_vadv(:,:,1,k,ie)=facp*(elem(ie)%state%v(:,:,1,k+1,n0)- elem(ie)%state%v(:,:,1,k,n0)) + & 
                        facm*(elem(ie)%state%v(:,:,1,k,n0)- elem(ie)%state%v(:,:,1,k-1,n0))
-       v_vadv(ie,:,:,2,k)=facp*(elem(ie)%state%v(:,:,2,k+1,n0)- elem(ie)%state%v(:,:,2,k,n0)) + &
+       v_vadv(:,:,2,k,ie)=facp*(elem(ie)%state%v(:,:,2,k+1,n0)- elem(ie)%state%v(:,:,2,k,n0)) + &
                        facm*(elem(ie)%state%v(:,:,2,k,n0)- elem(ie)%state%v(:,:,2,k-1,n0))
     end do
     ! ===========================================================
@@ -202,9 +202,9 @@ contains
     
     !
     k=nlev
-    facm            = 0.5_real_kind*eta_dot_dp_deta(ie,:,:,k)/elem(ie)%state%dp3d(:,:,k,n0)
-    v_vadv(ie,:,:,1,k)   = facm*(elem(ie)%state%v(:,:,1,k,n0)- elem(ie)%state%v(:,:,1,k-1,n0))
-    v_vadv(ie,:,:,2,k)   = facm*(elem(ie)%state%v(:,:,2,k,n0)- elem(ie)%state%v(:,:,2,k-1,n0))
+    facm            = 0.5_real_kind*eta_dot_dp_deta(:,:,k,ie)/elem(ie)%state%dp3d(:,:,k,n0)
+    v_vadv(:,:,1,k,ie)   = facm*(elem(ie)%state%v(:,:,1,k,n0)- elem(ie)%state%v(:,:,1,k-1,n0))
+    v_vadv(:,:,2,k,ie)   = facm*(elem(ie)%state%v(:,:,2,k,n0)- elem(ie)%state%v(:,:,2,k-1,n0))
   end do  
 #ifdef OPENACC_HOMME
 !$acc end parallel loop 

@@ -464,13 +464,13 @@ contains
 
     end function gradient_sphere
   subroutine gradient_sphere_openacc(s,deriv,elem,nets,nete,nlev,ds)  
-    real(kind=real_kind), intent(in) :: s(nelemd,np,np,nlev)
+    real(kind=real_kind), intent(in) :: s(np,np,nlev,nelemd)
     type (derivative_t), intent(in) :: deriv
     type (element_t), intent(in) :: elem(nelemd)
     integer             , intent(in) :: nets 
     integer             , intent(in) :: nete    
     integer             , intent(in) :: nlev
-    REAL(KIND=real_kind), intent(out):: ds(nelemd,np,np,2,nlev) 
+    REAL(KIND=real_kind), intent(out):: ds(np,np,2,nlev,nelemd) 
 
     !real(kind=real_kind) :: ds(np,np,2)
 
@@ -493,8 +493,8 @@ contains
             dsdx00=0.0d0
             dsdy00=0.0d0
             do i=1,np
-               dsdx00 = dsdx00 + deriv%Dvv(i,l  )*s(ie,i,j,k)
-               dsdy00 = dsdy00 + deriv%Dvv(i,l  )*s(ie,j,i,k)
+               dsdx00 = dsdx00 + deriv%Dvv(i,l  )*s(i,j,k,ie)
+               dsdy00 = dsdy00 + deriv%Dvv(i,l  )*s(j,i,k,ie)
             end do
             v1(l  ,j  ) = dsdx00*rrearth
             v2(j  ,l  ) = dsdy00*rrearth
@@ -503,8 +503,8 @@ contains
       ! convert covarient to latlon
       do j=1,np
          do i=1,np
-            ds(ie,i,j,1,k)=elem(ie)%Dinv(i,j,1,1)*v1(i,j) + elem(ie)%Dinv(i,j,2,1)*v2(i,j)
-            ds(ie,i,j,2,k)=elem(ie)%Dinv(i,j,1,2)*v1(i,j) + elem(ie)%Dinv(i,j,2,2)*v2(i,j)
+            ds(i,j,1,k,ie)=elem(ie)%Dinv(i,j,1,1)*v1(i,j) + elem(ie)%Dinv(i,j,2,1)*v2(i,j)
+            ds(i,j,2,k,ie)=elem(ie)%Dinv(i,j,1,2)*v1(i,j) + elem(ie)%Dinv(i,j,2,2)*v2(i,j)
          enddo
       enddo
     end do
@@ -1143,7 +1143,7 @@ contains
     integer             , intent(in) :: nets 
     integer             , intent(in) :: nete    
     integer             , intent(in) :: nlev
-    real(kind=real_kind), intent(out) :: vort_ie(nelemd,np,np,nlev)
+    real(kind=real_kind), intent(out) :: vort_ie(np,np,nlev,nelemd)
 
     real(kind=real_kind) :: vort(np,np)
 
@@ -1185,7 +1185,7 @@ contains
 
       do j=1,np
          do i=1,np
-            vort_ie(ie,i,j,k)=(vort(i,j)-vtemp(i,j))*(elem(ie)%rmetdet(i,j)*rrearth)
+            vort_ie(i,j,k,ie)=(vort(i,j)-vtemp(i,j))*(elem(ie)%rmetdet(i,j)*rrearth)
          end do
       end do
      end do
@@ -1307,13 +1307,13 @@ contains
   
   subroutine divergence_sphere_openacc(v,deriv,elem,nets,nete,nlev,divdp) 
 
-    real(kind=real_kind), intent(in) :: v(nelemd,np,np,2,nlev)  ! in lat-lon coordinates
+    real(kind=real_kind), intent(in) :: v(np,np,2,nlev,nelemd)  ! in lat-lon coordinates
     type (derivative_t), intent(in) :: deriv
     type (element_t), intent(in) :: elem(nelemd)
     integer             , intent(in) :: nets 
     integer             , intent(in) :: nete    
     integer             , intent(in) :: nlev
-    real(kind=real_kind), intent(out) ::  divdp(nelemd,np,np,nlev) 
+    real(kind=real_kind), intent(out) ::  divdp(np,np,nlev,nelemd) 
     real(kind=real_kind) :: div(np,np)
     ! Local
 
@@ -1334,8 +1334,8 @@ contains
      do k=1,nlev
        do j=1,np
          do i=1,np
-            gv(i,j,1)=elem(ie)%metdet(i,j)*(elem(ie)%Dinv(i,j,1,1)*v(ie,i,j,1,k) + elem(ie)%Dinv(i,j,1,2)*v(ie,i,j,2,k))
-            gv(i,j,2)=elem(ie)%metdet(i,j)*(elem(ie)%Dinv(i,j,2,1)*v(ie,i,j,1,k) + elem(ie)%Dinv(i,j,2,2)*v(ie,i,j,2,k))
+            gv(i,j,1)=elem(ie)%metdet(i,j)*(elem(ie)%Dinv(i,j,1,1)*v(i,j,1,k,ie) + elem(ie)%Dinv(i,j,1,2)*v(i,j,2,k,ie))
+            gv(i,j,2)=elem(ie)%metdet(i,j)*(elem(ie)%Dinv(i,j,2,1)*v(i,j,1,k,ie) + elem(ie)%Dinv(i,j,2,2)*v(i,j,2,k,ie))
          enddo
       enddo
       ! compute d/dx and d/dy         
@@ -1353,7 +1353,7 @@ contains
             vvtemp(j  ,l  ) = dvdy00
          end do
       end do      
-      divdp(ie,:,:,k)=(div(:,:)+vvtemp(:,:))*(elem(ie)%rmetdet(:,:)*rrearth)
+      divdp(:,:,k,ie)=(div(:,:)+vvtemp(:,:))*(elem(ie)%rmetdet(:,:)*rrearth)
     end do
   end do 
 #ifdef OPENACC_HOMME
@@ -2094,8 +2094,8 @@ contains
     integer             , intent(in) :: nete
     integer             , intent(in) :: q
     real (kind=real_kind), dimension(nlev,qsize,nelemd), intent(inout)   :: minp, maxp
-    real (kind=real_kind), dimension(nelemd,np*np,nlev), intent(inout)   :: ptens
-    real (kind=real_kind), dimension(nelemd,np*np,nlev), intent(in), optional  :: dpmass
+    real (kind=real_kind), dimension(np*np,nlev,nelemd), intent(inout)   :: ptens
+    real (kind=real_kind), dimension(np*np,nlev,nelemd), intent(in), optional  :: dpmass
     type (element_t), intent(in) :: elem(nelemd)
     !REAL(KIND=real_kind), pointer, dimension(np*np) :: sphweights
 
@@ -2113,8 +2113,8 @@ contains
      sumc=0.0d0
      mass=0.0d0
      do k1=1,np*np
-       c(k1)=elem(ie)%spheremp(k1,1)*dpmass(ie,k1,k)
-       x(k1)=ptens(ie,k1,k)/dpmass(ie,k1,k)
+       c(k1)=elem(ie)%spheremp(k1,1)*dpmass(k1,k,ie)
+       x(k1)=ptens(k1,k,ie)/dpmass(k1,k,ie)
        sumc=sumc+c(k1)
        mass=mass+c(k1)*x(k1)
      enddo
@@ -2186,7 +2186,7 @@ contains
 
    enddo!end of iteration
 
-   ptens(ie,:,k)=x(:)*dpmass(ie,:,k)
+   ptens(:,k,ie)=x(:)*dpmass(:,k,ie)
 
   enddo !k
  enddo !ie
@@ -2298,10 +2298,10 @@ contains
     integer             , intent(in) :: nets 
     integer             , intent(in) :: nete
     integer             , intent(in) :: q
-    real (kind=real_kind), dimension(nelemd,np,np,nlev), intent(inout) :: ptens
+    real (kind=real_kind), dimension(np,np,nlev,nelemd), intent(inout) :: ptens
     !real (kind=real_kind), dimension(np,np),      intent(in)    :: sphweights
     real (kind=real_kind), dimension(nlev,qsize,nelemd),       intent(inout) :: minp, maxp
-    real (kind=real_kind), dimension(nelemd,np,np,nlev), intent(in), optional :: dpmass
+    real (kind=real_kind), dimension(np,np,nlev,nelemd), intent(in), optional :: dpmass
     type (element_t), intent(in) :: elem(nelemd)
     real (kind=real_kind), parameter :: zero = 0.0d0
 
@@ -2317,8 +2317,8 @@ contains
        k1 = 1
        do j = 1, np
           do i = 1, np
-             c(k1) = elem(ie)%spheremp(i,j)*dpmass(ie,i,j,k)
-             x(k1) = ptens(ie,i,j,k)/dpmass(ie,i,j,k)
+             c(k1) = elem(ie)%spheremp(i,j)*dpmass(i,j,k,ie)
+             x(k1) = ptens(i,j,k,ie)/dpmass(i,j,k,ie)
              k1 = k1+1
           enddo
        enddo
@@ -2370,7 +2370,7 @@ contains
        k1 = 1
        do j = 1,np
           do i = 1,np
-             ptens(ie,i,j,k) = x(k1)*dpmass(ie,i,j,k)
+             ptens(i,j,k,ie) = x(k1)*dpmass(i,j,k,ie)
              k1 = k1+1
           end do
        end do

@@ -1136,53 +1136,53 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   real (kind=real_kind) :: dpnh_dp_i(np,np,nlevp)    ! dpnh / dp3d at interfaces
   real (kind=real_kind) ::  temp(np,np,nlev)
   
-  real (kind=real_kind) :: vtheta_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: vtheta_i_ie(nelemd,np,np,nlevp)
-  real (kind=real_kind) :: omega_i_ie(nelemd,np,np,nlevp)
-  real (kind=real_kind) :: omega_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: vort_ie(nelemd,np,np,nlev)           ! vorticity
-  real (kind=real_kind) :: divdp_ie(nelemd,np,np,nlev)     
-  real (kind=real_kind) :: phi_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: pnh_ie(nelemd,np,np,nlev)               ! nh (nonydro) pressure
-  real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
-  real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)         ! exner nh pressure
-  real (kind=real_kind) :: dpnh_dp_i_ie(nelemd,np,np,nlevp)    ! dpnh / dp3d at interfaces
-  real (kind=real_kind) :: eta_dot_dpdn_ie(nelemd,np,np,nlevp)  ! vertical velocity at interfaces
-  real (kind=real_kind) :: KE_ie(nelemd,np,np,nlev)             ! Kinetic energy
-  real (kind=real_kind) :: gradexner_ie(nelemd,np,np,2,nlev)    ! grad(p^kappa)
-  real (kind=real_kind) :: gradphinh_i_ie(nelemd,np,np,2,nlevp) ! gradphi at interfaces
+  real (kind=real_kind) :: vtheta_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: vtheta_i_ie(np,np,nlevp,nelemd)
+  real (kind=real_kind) :: omega_i_ie(np,np,nlevp,nelemd)
+  real (kind=real_kind) :: omega_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: vort_ie(np,np,nlev,nelemd)           ! vorticity
+  real (kind=real_kind) :: divdp_ie(np,np,nlev,nelemd)     
+  real (kind=real_kind) :: phi_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: pnh_ie(np,np,nlev,nelemd)               ! nh (nonydro) pressure
+  real (kind=real_kind) :: dp3d_i_ie(np,np,nlevp,nelemd)
+  real (kind=real_kind) :: exner_ie(np,np,nlev,nelemd)         ! exner nh pressure
+  real (kind=real_kind) :: dpnh_dp_i_ie(np,np,nlevp,nelemd)    ! dpnh / dp3d at interfaces
+  real (kind=real_kind) :: eta_dot_dpdn_ie(np,np,nlevp,nelemd)  ! vertical velocity at interfaces
+  real (kind=real_kind) :: KE_ie(np,np,nlev,nelemd)             ! Kinetic energy
+  real (kind=real_kind) :: gradexner_ie(np,np,2,nlev,nelemd)    ! grad(p^kappa)
+  real (kind=real_kind) :: gradphinh_i_ie(np,np,2,nlevp,nelemd) ! gradphi at interfaces
   !real (kind=real_kind) :: mgrad_ie(nelemd,np,np,2,nlev)        ! gradphi metric term at cell centers
-  real (kind=real_kind) :: gradKE_ie(nelemd,np,np,2,nlev)       ! grad(0.5 u^T u )
-  real (kind=real_kind) :: wvor_ie(nelemd,np,np,2,nlev)         ! w vorticity term
+  real (kind=real_kind) :: gradKE_ie(np,np,2,nlev,nelemd)       ! grad(0.5 u^T u )
+  real (kind=real_kind) :: wvor_ie(np,np,2,nlev,nelemd)         ! w vorticity term
 
-  real (kind=real_kind) :: gradw_i_ie(nelemd,np,np,2,nlevp)
-  real (kind=real_kind) :: v_gradw_i_ie(nelemd,np,np,nlevp)     
+  real (kind=real_kind) :: gradw_i_ie(np,np,2,nlevp,nelemd)
+  real (kind=real_kind) :: v_gradw_i_ie(np,np,nlevp,nelemd)     
   !real (kind=real_kind) :: v_gradtheta_ie(np,np,nlev,nelemd)     
-  real (kind=real_kind) :: v_theta_ie(nelemd,np,np,2,nlev)
-  real (kind=real_kind) :: div_v_theta_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: v_gradphinh_i_ie(nelemd,np,np,nlevp) ! v*gradphi at interfaces
-  real (kind=real_kind) :: v_i_ie(nelemd,np,np,2,nlevp)
+  real (kind=real_kind) :: v_theta_ie(np,np,2,nlev,nelemd)
+  real (kind=real_kind) :: div_v_theta_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: v_gradphinh_i_ie(np,np,nlevp,nelemd) ! v*gradphi at interfaces
+  real (kind=real_kind) :: v_i_ie(np,np,2,nlevp,nelemd)
 
-  real (kind=real_kind) :: v_vadv_ie(nelemd,np,np,2,nlev)     ! velocity vertical advection
-  real (kind=real_kind) :: theta_vadv_ie(nelemd,np,np,nlev)   ! w,phi, theta  vertical advection term
-  real (kind=real_kind) :: w_vadv_i_ie(nelemd,np,np,nlevp)      ! w,phi, theta  vertical advection term
-  real (kind=real_kind) :: phi_vadv_i_ie(nelemd,np,np,nlevp)    ! w,phi, theta  vertical advection term
+  real (kind=real_kind) :: v_vadv_ie(np,np,2,nlev,nelemd)     ! velocity vertical advection
+  real (kind=real_kind) :: theta_vadv_ie(np,np,nlev,nelemd)   ! w,phi, theta  vertical advection term
+  real (kind=real_kind) :: w_vadv_i_ie(np,np,nlevp,nelemd)      ! w,phi, theta  vertical advection term
+  real (kind=real_kind) :: phi_vadv_i_ie(np,np,nlevp,nelemd)    ! w,phi, theta  vertical advection term
 
-  real (kind=real_kind) :: vtens1_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: vtens2_ie(nelemd,np,np,nlev)
+  real (kind=real_kind) :: vtens1_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: vtens2_ie(np,np,nlev,nelemd)
   !real (kind=real_kind) :: stens_ie(nelemd,np,np,nlev,3) ! tendencies w,phi,theta
                                                ! w,phi tendencies not computed at nlevp
-  real (kind=real_kind) :: w_tens_ie(nelemd,np,np,nlevp)  ! need to update w at surface as well
-  real (kind=real_kind) :: theta_tens_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) :: phi_tens_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: w_tens_ie(np,np,nlevp,nelemd)  ! need to update w at surface as well
+  real (kind=real_kind) :: theta_tens_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) :: phi_tens_ie(np,np,nlevp,nelemd)
                                                
 
-  real (kind=real_kind) :: pi_ie(nelemd,np,np,nlev)                ! hydrostatic pressure
-  real (kind=real_kind) :: pi_i_ie(nelemd,np,np,nlevp)             ! hydrostatic pressure interfaces
-  real (kind=real_kind), dimension(nelemd,np,np,nlev) :: vgrad_p_ie
+  real (kind=real_kind) :: pi_ie(np,np,nlev,nelemd)                ! hydrostatic pressure
+  real (kind=real_kind) :: pi_i_ie(np,np,nlevp,nelemd)             ! hydrostatic pressure interfaces
+  real (kind=real_kind), dimension(np,np,nlev,nelemd) :: vgrad_p_ie
 
-  real (kind=real_kind) ::  temp_ie(nelemd,np,np,nlev)
-  real (kind=real_kind) ::  vtemp_ie(nelemd,np,np,2,nlev)       ! generic gradient storage
+  real (kind=real_kind) ::  temp_ie(np,np,nlev,nelemd)
+  real (kind=real_kind) ::  vtemp_ie(np,np,2,nlev,nelemd)       ! generic gradient storage
 
 
   real (kind=real_kind), dimension(np,np) :: sdot_sum ! temporary field
@@ -1190,7 +1190,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   integer :: i,j,k,kptr,ie, nlyr_tot
 
     real(kind=real_kind) ::  dsdx00, dsdy00, dsdx001, dsdy001, dsdx002, dsdy002,mgrad_ie_tmp1,mgrad_ie_tmp2
-    real(kind=real_kind) ::  v11(np,np),v21(np,np),v12(np,np),v22(np,np)
+    !real(kind=real_kind) ::  v11(np,np),v21(np,np),v12(np,np),v22(np,np)
+    real(kind=real_kind) ::  v11_kie(np,np,nlevp,nelemd),v21_kie(np,np,nlevp,nelemd),v12_kie(np,np,nlevp,nelemd),v22_kie(np,np,nlevp,nelemd)
     INTEGER :: l
     real :: start, finish
 
@@ -1213,7 +1214,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$acc enter data create(gradphinh_i_ie, gradKE_ie, wvor_ie, gradw_i_ie, v_gradw_i_ie)
 !$acc enter data create(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
 !$acc enter data create(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
-!$acc enter data create(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie)
+!$acc enter data create(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie,v11_kie,v21_kie,v12_kie,v22_kie)
 !!$acc update device(hvcoord,deriv)
 #endif
 
@@ -1223,7 +1224,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   do ie=nets,nete !nete
      !dp3d  => elem(ie)%state%dp3d(:,:,:,n0)
      !vtheta_dp  => elem(ie)%state%vtheta_dp(:,:,:,n0)
-     vtheta_ie(ie,:,:,:) = elem(ie)%state%vtheta_dp(:,:,:,n0)/elem(ie)%state%dp3d(:,:,:,n0)
+     vtheta_ie(:,:,:,ie) = elem(ie)%state%vtheta_dp(:,:,:,n0)/elem(ie)%state%dp3d(:,:,:,n0)
      !phi_i => elem(ie)%state%phinh_i(:,:,:,n0)
 
      !call get_pnh_and_exner(hvcoord,elem(ie)%state%vtheta_dp(:,:,:,n0),elem(ie)%state%dp3d(:,:,:,n0),elem(ie)%state%phinh_i(:,:,:,n0),pnh_ie(ie,:,:,:),exner_ie(ie,:,:,:),dpnh_dp_i_ie(ie,:,:,:))
@@ -1238,12 +1239,26 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$acc parallel loop gang private(k) present(elem,dp3d_i_ie)
 #endif    
   do ie=nets,nete !nete
-     dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,n0) 
-     dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,n0) 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+     do i=1,np
+       do j=1,np
+         dp3d_i_ie(i,j,1,ie) = elem(ie)%state%dp3d(i,j,1,n0) 
+         dp3d_i_ie(i,j,nlevp,ie) = elem(ie)%state%dp3d(i,j,nlev,n0)
+       enddo
+     enddo 
      do k=2,nlev
-        dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,n0)+elem(ie)%state%dp3d(:,:,k-1,n0))/2
-     end do
-  end do 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
+            dp3d_i_ie(i,j,k,ie)=(elem(ie)%state%dp3d(i,j,k,n0)+elem(ie)%state%dp3d(i,j,k-1,n0))/2
+          enddo
+        enddo
+     enddo
+  enddo 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif  
@@ -1253,15 +1268,29 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif    
   do ie=nets,nete !nete
      ! special averaging for velocity for energy conservation
-     v_i_ie(ie,:,:,1:2,1) = elem(ie)%state%v(:,:,1:2,1,n0)  
-     v_i_ie(ie,:,:,1:2,nlevp) = elem(ie)%state%v(:,:,1:2,nlev,n0)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+     do i=1,np
+       do j=1,np
+         v_i_ie(i,j,1:2,1,ie) = elem(ie)%state%v(i,j,1:2,1,n0)  
+         v_i_ie(i,j,1:2,nlevp,ie) = elem(ie)%state%v(i,j,1:2,nlev,n0)
+       enddo
+     enddo
      do k=2,nlev
-        v_i_ie(ie,:,:,1,k) = (elem(ie)%state%dp3d(:,:,k,n0)*elem(ie)%state%v(:,:,1,k,n0) + &
-             elem(ie)%state%dp3d(:,:,k-1,n0)*elem(ie)%state%v(:,:,1,k-1,n0) ) / (2*dp3d_i_ie(ie,:,:,k))
-        v_i_ie(ie,:,:,2,k) = (elem(ie)%state%dp3d(:,:,k,n0)*elem(ie)%state%v(:,:,2,k,n0) + &
-             elem(ie)%state%dp3d(:,:,k-1,n0)*elem(ie)%state%v(:,:,2,k-1,n0) ) / (2*dp3d_i_ie(ie,:,:,k))
-     end do
-  end do 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
+            v_i_ie(i,j,1,k,ie) = (elem(ie)%state%dp3d(i,j,k,n0)*elem(ie)%state%v(i,j,1,k,n0) + &
+                elem(ie)%state%dp3d(i,j,k-1,n0)*elem(ie)%state%v(i,j,1,k-1,n0) ) / (2*dp3d_i_ie(i,j,k,ie))
+            v_i_ie(i,j,2,k,ie) = (elem(ie)%state%dp3d(i,j,k,n0)*elem(ie)%state%v(i,j,2,k,n0) + &
+                elem(ie)%state%dp3d(i,j,k-1,n0)*elem(ie)%state%v(i,j,2,k-1,n0) ) / (2*dp3d_i_ie(i,j,k,ie))
+          enddo
+        enddo
+     enddo
+  enddo 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif  
@@ -1273,7 +1302,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      if (theta_hydrostatic_mode) then
         do k=nlev,1,-1          ! traditional Hydrostatic integral
            elem(ie)%state%phinh_i(:,:,k,n0)=elem(ie)%state%phinh_i(:,:,k+1,n0)+&
-                Rgas*elem(ie)%state%vtheta_dp(:,:,k,n0)*exner_ie(ie,:,:,k)/pnh_ie(ie,:,:,k)
+                Rgas*elem(ie)%state%vtheta_dp(:,:,k,n0)*exner_ie(:,:,k,ie)/pnh_ie(:,:,k,ie)
         enddo
         ! in H mode, ignore w contibutions to KE term
         ! set to zero so H and NH can share code and reduce if statements
@@ -1285,18 +1314,25 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang collapse(2) present(elem,phi_ie,vtemp_ie)
+!$acc parallel loop gang present(elem,phi_ie,vtemp_ie)
 #endif         	
   do ie=nets,nete !nete  
     do k=1,nlev
-        phi_ie(ie,:,:,k) = (elem(ie)%state%phinh_i(:,:,k,n0)+elem(ie)%state%phinh_i(:,:,k+1,n0))/2  ! for diagnostics
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
+            phi_ie(i,j,k,ie) = (elem(ie)%state%phinh_i(i,j,k,n0)+elem(ie)%state%phinh_i(i,j,k+1,n0))/2  ! for diagnostics
 
-        ! ================================
-        ! Accumulate mean Vel_rho flux in vn0
-        ! ================================
-        vtemp_ie(ie,:,:,1,k) = elem(ie)%state%v(:,:,1,k,n0)*elem(ie)%state%dp3d(:,:,k,n0)
-        vtemp_ie(ie,:,:,2,k) = elem(ie)%state%v(:,:,2,k,n0)*elem(ie)%state%dp3d(:,:,k,n0)
-        elem(ie)%derived%vn0(:,:,:,k)=elem(ie)%derived%vn0(:,:,:,k)+eta_ave_w*vtemp_ie(ie,:,:,:,k)
+            ! ================================
+            ! Accumulate mean Vel_rho flux in vn0
+            ! ================================
+            vtemp_ie(i,j,1,k,ie) = elem(ie)%state%v(i,j,1,k,n0)*elem(ie)%state%dp3d(i,j,k,n0)
+            vtemp_ie(i,j,2,k,ie) = elem(ie)%state%v(i,j,2,k,n0)*elem(ie)%state%dp3d(i,j,k,n0)
+            elem(ie)%derived%vn0(i,j,:,k)=elem(ie)%derived%vn0(i,j,:,k)+eta_ave_w*vtemp_ie(i,j,:,k,ie)
+          enddo
+        enddo
      enddo
   end do        
 #ifdef OPENACC_HOMME
@@ -1310,49 +1346,82 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,pi_i_ie,omega_i_ie,divdp_ie,pi_ie,hvcoord)
+!$acc parallel loop gang private(k) present(elem,pi_i_ie,omega_i_ie,divdp_ie,pi_ie,hvcoord)
 #endif     
-  do ie=nets,nete !nete     
-     pi_i_ie(ie,:,:,1)=hvcoord%hyai(1)*hvcoord%ps0
-     omega_i_ie(ie,:,:,1)=0
-     do k=1,nlev
-        pi_i_ie(ie,:,:,k+1)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)
-        omega_i_ie(ie,:,:,k+1)=omega_i_ie(ie,:,:,k)+divdp_ie(ie,:,:,k)
+  do ie=nets,nete !nete
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+     do i=1,np
+       do j=1,np     
+         pi_i_ie(i,j,1,ie)=hvcoord%hyai(1)*hvcoord%ps0
+         omega_i_ie(i,j,1,ie)=0
+       enddo
      enddo
      do k=1,nlev
-        pi_ie(ie,:,:,k)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
+            pi_i_ie(i,j,k+1,ie)=pi_i_ie(i,j,k,ie) + elem(ie)%state%dp3d(i,j,k,n0)
+            omega_i_ie(i,j,k+1,ie)=omega_i_ie(i,j,k,ie)+divdp_ie(i,j,k,ie)
+          enddo
+        enddo
      enddo
-  end do 
+     do k=1,nlev
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
+            pi_ie(i,j,k,ie)=pi_i_ie(i,j,k,ie) + elem(ie)%state%dp3d(i,j,k,n0)/2
+          enddo
+        enddo
+     enddo
+  enddo 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) private(i,j,dsdx00,dsdy00,v11,v21) present(elem,pi_ie,vtemp_ie,deriv)
+!$acc parallel loop gang vector present(elem,pi_ie,vtemp_ie,deriv,v11_kie,v21_kie)
 #endif
   do ie=nets,nete !nete
      do k=1,nlev
         !vtemp_ie(ie,:,:,:,k) = gradient_sphere( pi_ie(ie,:,:,k), deriv, elem(ie)%Dinv);
-        
         do j=1,np
           do l=1,np
              dsdx00=0.0d0
              dsdy00=0.0d0
              do i=1,np
-                dsdx00 = dsdx00 + deriv%Dvv(i,l  )*pi_ie(ie,i,j  ,k)
-                dsdy00 = dsdy00 + deriv%Dvv(i,l  )*pi_ie(ie,j  ,i,k)
+                dsdx00 = dsdx00 + deriv%Dvv(i,l  )*pi_ie(i,j  ,k,ie)
+                dsdy00 = dsdy00 + deriv%Dvv(i,l  )*pi_ie(j  ,i,k,ie)
              end do
-             v11(l  ,j  ) = dsdx00*rrearth
-             v21(j  ,l  ) = dsdy00*rrearth
+             v11_kie(l,j,k,ie) = dsdx00*rrearth
+             v21_kie(j,l,k,ie) = dsdy00*rrearth
            end do
-        end do
+        end do   
+    end do          
+  end do
+#ifdef OPENACC_HOMME
+!$acc end parallel loop
+#endif
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(elem,pi_ie,vtemp_ie,deriv,v11_kie,v21_kie)
+#endif
+  do ie=nets,nete !nete
+     do k=1,nlev
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
         ! convert covarient to latlon
-        do j=1,np
-          do i=1,np
-             vtemp_ie(ie,i,j,1,k)=elem(ie)%Dinv(i,j,1,1)*v11(i,j) + elem(ie)%Dinv(i,j,2,1)*v21(i,j)
-             vtemp_ie(ie,i,j,2,k)=elem(ie)%Dinv(i,j,1,2)*v11(i,j) + elem(ie)%Dinv(i,j,2,2)*v21(i,j)
+            vtemp_ie(i,j,1,k,ie)=elem(ie)%Dinv(i,j,1,1)*v11_kie(i,j,k,ie) + elem(ie)%Dinv(i,j,2,1)*v21_kie(i,j,k,ie)
+            vtemp_ie(i,j,2,k,ie)=elem(ie)%Dinv(i,j,1,2)*v11_kie(i,j,k,ie) + elem(ie)%Dinv(i,j,2,2)*v21_kie(i,j,k,ie)
           enddo
-       enddo
+        enddo
      enddo        
   end do
 #ifdef OPENACC_HOMME
@@ -1360,15 +1429,23 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,vgrad_p_ie,vtemp_ie,omega_ie,omega_i_ie)
+!$acc parallel loop gang present(elem,vgrad_p_ie,vtemp_ie,omega_ie,omega_i_ie)
 #endif
-  do k=1,nlev     
-     do ie=nets,nete !nete
-        !pi_ie(ie,:,:,k)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
-        !vtemp_ie(ie,:,:,:,k) = gradient_sphere( pi_ie(ie,:,:,k), deriv, elem(ie)%Dinv);
-        vgrad_p_ie(ie,:,:,k) = elem(ie)%state%v(:,:,1,k,n0)*vtemp_ie(ie,:,:,1,k)+&
-             elem(ie)%state%v(:,:,2,k,n0)*vtemp_ie(ie,:,:,2,k)
-        omega_ie(ie,:,:,k) = (vgrad_p_ie(ie,:,:,k) - ( omega_i_ie(ie,:,:,k)+omega_i_ie(ie,:,:,k+1))/2) 
+
+  do ie=nets,nete !nete
+    do k=1,nlev     
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np
+            !pi_ie(ie,:,:,k)=pi_i_ie(ie,:,:,k) + elem(ie)%state%dp3d(:,:,k,n0)/2
+            !vtemp_ie(ie,:,:,:,k) = gradient_sphere( pi_ie(ie,:,:,k), deriv, elem(ie)%Dinv);
+            vgrad_p_ie(i,j,k,ie) = elem(ie)%state%v(i,j,1,k,n0)*vtemp_ie(i,j,1,k,ie)+&
+                elem(ie)%state%v(i,j,2,k,n0)*vtemp_ie(i,j,2,k,ie)
+            omega_ie(i,j,k,ie) = (vgrad_p_ie(i,j,k,ie) - ( omega_i_ie(i,j,k,ie)+omega_i_ie(i,j,k+1,ie))/2)
+          enddo
+        enddo
      enddo        
   end do 
 #ifdef OPENACC_HOMME
@@ -1376,7 +1453,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif   
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k,sdot_sum)  present(elem,eta_dot_dpdn_ie,w_vadv_i_ie,phi_vadv_i_ie,theta_vadv_ie,v_vadv_ie, &
+!$acc parallel loop gang private(k,sdot_sum)  present(elem,eta_dot_dpdn_ie,w_vadv_i_ie,phi_vadv_i_ie,theta_vadv_ie,v_vadv_ie, &
     !$acc divdp_ie,vtheta_i_ie,temp_ie,phi_ie,dp3d_i_ie,exner_ie,dpnh_dp_i_ie,hvcoord)
 #endif   
   do ie=nets,nete !nete
@@ -1386,19 +1463,19 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! ==================================================
      if (rsplit>0) then
         ! VERTICALLY LAGRANGIAN:   no vertical motion
-        eta_dot_dpdn_ie(ie,:,:,:)=0
-        w_vadv_i_ie(ie,:,:,:)=0
-        phi_vadv_i_ie(ie,:,:,:)=0
-        theta_vadv_ie(ie,:,:,:)=0
-        v_vadv_ie(ie,:,:,:,:)=0
+        eta_dot_dpdn_ie(:,:,:,ie)=0
+        w_vadv_i_ie(:,:,:,ie)=0
+        phi_vadv_i_ie(:,:,:,ie)=0
+        theta_vadv_ie(:,:,:,ie)=0
+        v_vadv_ie(:,:,:,:,ie)=0
      else
         sdot_sum=0
         do k=1,nlev
            ! ==================================================
            ! add this term to PS equation so we exactly conserve dry mass
            ! ==================================================
-           sdot_sum(:,:) = sdot_sum(:,:) + divdp_ie(ie,:,:,k)
-           eta_dot_dpdn_ie(ie,:,:,k+1) = sdot_sum(:,:)
+           sdot_sum(:,:) = sdot_sum(:,:) + divdp_ie(:,:,k,ie)
+           eta_dot_dpdn_ie(:,:,k+1,ie) = sdot_sum(:,:)
         end do
 
 
@@ -1410,13 +1487,13 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         !    omega = v grad p  - integral_etatop^eta[ divdp ]
         ! ===========================================================
         do k=1,nlev-1
-           eta_dot_dpdn_ie(ie,:,:,k+1) = hvcoord%hybi(k+1)*sdot_sum(:,:) - eta_dot_dpdn_ie(ie,:,:,k+1)
+           eta_dot_dpdn_ie(:,:,k+1,ie) = hvcoord%hybi(k+1)*sdot_sum(:,:) - eta_dot_dpdn_ie(:,:,k+1,ie)
         end do
 
-        eta_dot_dpdn_ie(ie,:,:,1) = 0
-        eta_dot_dpdn_ie(ie,:,:,nlevp)  = 0
-        vtheta_i_ie(ie,:,:,1) =       0
-        vtheta_i_ie(ie,:,:,nlevp) =   0
+        eta_dot_dpdn_ie(:,:,1,ie) = 0
+        eta_dot_dpdn_ie(:,:,nlevp,ie)  = 0
+        vtheta_i_ie(:,:,1,ie) =       0
+        vtheta_i_ie(:,:,nlevp,ie) =   0
 
 
         ! ===========================================================
@@ -1429,33 +1506,33 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         ! dont bother to compute at surface and top since it will be multiplied by eta-dot
            ! E conserving average, but much more dissipative
            do k=2,nlev
-              vtheta_i_ie(ie,:,:,k) = -dpnh_dp_i_ie(ie,:,:,k)*(phi_ie(ie,:,:,k)-phi_ie(ie,:,:,k-1))/&
-                   (exner_ie(ie,:,:,k)-exner_ie(ie,:,:,k-1)) / Cp
+              vtheta_i_ie(:,:,k,ie) = -dpnh_dp_i_ie(:,:,k,ie)*(phi_ie(:,:,k,ie)-phi_ie(:,:,k-1,ie))/&
+                   (exner_ie(:,:,k,ie)-exner_ie(:,:,k-1,ie)) / Cp
            enddo
    
 
         do k=1,nlev
            ! average interface quantity to midpoints:
-           temp_ie(ie,:,:,k) = (( eta_dot_dpdn_ie(ie,:,:,k)+eta_dot_dpdn_ie(ie,:,:,k+1))/2)*&
+           temp_ie(:,:,k,ie) = (( eta_dot_dpdn_ie(:,:,k,ie)+eta_dot_dpdn_ie(:,:,k+1,ie))/2)*&
                 (elem(ie)%state%w_i(:,:,k+1,n0)-elem(ie)%state%w_i(:,:,k,n0))
            
            ! theta vadv term at midoints
-           theta_vadv_ie(ie,:,:,k)= eta_dot_dpdn_ie(ie,:,:,k+1)*vtheta_i_ie(ie,:,:,k+1) - &
-                eta_dot_dpdn_ie(ie,:,:,k)*vtheta_i_ie(ie,:,:,k)
+           theta_vadv_ie(:,:,k,ie)= eta_dot_dpdn_ie(:,:,k+1,ie)*vtheta_i_ie(:,:,k+1,ie) - &
+                eta_dot_dpdn_ie(:,:,k,ie)*vtheta_i_ie(:,:,k,ie)
         enddo
         ! compute ave( ave(etadot) d/dx )
         do k=2,nlev
-           w_vadv_i_ie(ie,:,:,k)  =(temp_ie(ie,:,:,k-1)+temp_ie(ie,:,:,k))/2
-           phi_vadv_i_ie(ie,:,:,k)=eta_dot_dpdn_ie(ie,:,:,k)*(phi_ie(ie,:,:,k)-phi_ie(ie,:,:,k-1))
+           w_vadv_i_ie(:,:,k,ie)  =(temp_ie(:,:,k-1,ie)+temp_ie(:,:,k,ie))/2
+           phi_vadv_i_ie(:,:,k,ie)=eta_dot_dpdn_ie(:,:,k,ie)*(phi_ie(:,:,k,ie)-phi_ie(:,:,k-1,ie))
         end do
-        w_vadv_i_ie(ie,:,:,1) = temp_ie(ie,:,:,1)
-        w_vadv_i_ie(ie,:,:,nlevp) = temp_ie(ie,:,:,nlev)
-        phi_vadv_i_ie(ie,:,:,1) = 0
-        phi_vadv_i_ie(ie,:,:,nlevp) = 0
+        w_vadv_i_ie(:,:,1,ie) = temp_ie(:,:,1,ie)
+        w_vadv_i_ie(:,:,nlevp,ie) = temp_ie(:,:,nlev,ie)
+        phi_vadv_i_ie(:,:,1,ie) = 0
+        phi_vadv_i_ie(:,:,nlevp,ie) = 0
 
         ! final form of SB81 vertical advection operator:
-        w_vadv_i_ie(ie,:,:,:)=w_vadv_i_ie(ie,:,:,:)/dp3d_i_ie(ie,:,:,:)
-        phi_vadv_i_ie(ie,:,:,:)=phi_vadv_i_ie(ie,:,:,:)/dp3d_i_ie(ie,:,:,:)
+        w_vadv_i_ie(:,:,:,ie)=w_vadv_i_ie(:,:,:,ie)/dp3d_i_ie(:,:,:,ie)
+        phi_vadv_i_ie(:,:,:,ie)=phi_vadv_i_ie(:,:,:,ie)/dp3d_i_ie(:,:,:,ie)
      endif
   end do 
 #ifdef OPENACC_HOMME
@@ -1481,7 +1558,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   
     
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,eta_dot_dpdn_ie,omega_ie)
+!$acc parallel loop gang present(elem,eta_dot_dpdn_ie,omega_ie)
 #endif     
   do ie=nets,nete !nete
 
@@ -1489,16 +1566,29 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! accumulate mean vertical flux:
      ! ================================
 
-     do k=1,nlev  !  Loop index added (AAM)
-        elem(ie)%derived%eta_dot_dpdn(:,:,k) = &
-             elem(ie)%derived%eta_dot_dpdn(:,:,k) + eta_ave_w*eta_dot_dpdn_ie(ie,:,:,k)
-        elem(ie)%derived%omega_p(:,:,k) = &
-             elem(ie)%derived%omega_p(:,:,k) + eta_ave_w*omega_ie(ie,:,:,k)
+     do k=1,nlev  !  Loop index added (AAM) 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np
+            elem(ie)%derived%eta_dot_dpdn(i,j,k) = &
+                elem(ie)%derived%eta_dot_dpdn(i,j,k) + eta_ave_w*eta_dot_dpdn_ie(i,j,k,ie)
+            elem(ie)%derived%omega_p(i,j,k) = &
+                elem(ie)%derived%omega_p(i,j,k) + eta_ave_w*omega_ie(i,j,k,ie)
+          enddo
+        enddo
      enddo
-    
-     elem(ie)%derived%eta_dot_dpdn(:,:,nlev+1) = &
-             elem(ie)%derived%eta_dot_dpdn(:,:,nlev+1) + eta_ave_w*eta_dot_dpdn_ie(ie,:,:,nlev+1)
-
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np
+     
+            elem(ie)%derived%eta_dot_dpdn(i,j,nlev+1) = &
+                elem(ie)%derived%eta_dot_dpdn(i,j,nlev+1) + eta_ave_w*eta_dot_dpdn_ie(i,j,nlev+1,ie)
+          enddo
+        enddo
      ! ================================================
      ! w,phi tendencies including surface
      ! ================================================ 
@@ -1509,12 +1599,15 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) private(i,j,dsdx001,dsdy001,v11,v21,dsdx002,dsdy002,v12,v22) present(elem,gradphinh_i_ie,gradw_i_ie,deriv)
+!$acc parallel loop gang vector collapse(2) present(elem,gradphinh_i_ie,gradw_i_ie,deriv,v11_kie,v21_kie,v12_kie,v22_kie)
 #endif 
-  do k=1,nlevp !one extra iteration for the calculations required afterwards
-     do ie=nets,nete !nete
+  do ie=nets,nete !nete
+     do k=1,nlevp !one extra iteration for the calculations required afterwards
         !gradphinh_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%phinh_i(:,:,k,n0),deriv,elem(ie)%Dinv)   
         !gradw_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%w_i(:,:,k,n0),deriv,elem(ie)%Dinv)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
         do j=1,np
           do l=1,np
              dsdx001=0.0d0
@@ -1528,52 +1621,71 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
                 dsdx002 = dsdx002 + deriv%Dvv(i,l  )*elem(ie)%state%w_i(i,j  ,k,n0)
                 dsdy002 = dsdy002 + deriv%Dvv(i,l  )*elem(ie)%state%w_i(j  ,i,k,n0)
              end do
-             v11(l  ,j  ) = dsdx001*rrearth
-             v21(j  ,l  ) = dsdy001*rrearth
+             v11_kie(l,j,k,ie) = dsdx001*rrearth
+             v21_kie(j,l,k,ie) = dsdy001*rrearth
              
-             v12(l  ,j  ) = dsdx002*rrearth
-             v22(j  ,l  ) = dsdy002*rrearth
+             v12_kie(l,j,k,ie) = dsdx002*rrearth
+             v22_kie(j,l,k,ie) = dsdy002*rrearth
            end do
         end do
-        ! convert covarient to latlon
-        do j=1,np
-          do i=1,np
-             gradphinh_i_ie(ie,i,j,1,k)=elem(ie)%Dinv(i,j,1,1)*v11(i,j) + elem(ie)%Dinv(i,j,2,1)*v21(i,j)
-             gradphinh_i_ie(ie,i,j,2,k)=elem(ie)%Dinv(i,j,1,2)*v11(i,j) + elem(ie)%Dinv(i,j,2,2)*v21(i,j)
-             
-             gradw_i_ie(ie,i,j,1,k)=elem(ie)%Dinv(i,j,1,1)*v12(i,j) + elem(ie)%Dinv(i,j,2,1)*v22(i,j)
-             gradw_i_ie(ie,i,j,2,k)=elem(ie)%Dinv(i,j,1,2)*v12(i,j) + elem(ie)%Dinv(i,j,2,2)*v22(i,j)
-          enddo
-       enddo
      enddo        
   end do
-
+#ifdef OPENACC_HOMME
+!$acc end parallel loop     
+#endif
+#ifdef OPENACC_HOMME
+!$acc parallel loop gang present(elem,gradphinh_i_ie,gradw_i_ie,deriv,v11_kie,v21_kie,v12_kie,v22_kie)
+#endif 
+  do ie=nets,nete !nete
+     do k=1,nlevp !one extra iteration for the calculations required afterwards 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np 
+        ! convert covarient to latlon
+       	     gradphinh_i_ie(i,j,1,k,ie)=elem(ie)%Dinv(i,j,1,1)*v11_kie(i,j,k,ie) + elem(ie)%Dinv(i,j,2,1)*v21_kie(i,j,k,ie)
+             gradphinh_i_ie(i,j,2,k,ie)=elem(ie)%Dinv(i,j,1,2)*v11_kie(i,j,k,ie) + elem(ie)%Dinv(i,j,2,2)*v21_kie(i,j,k,ie)
+             
+             gradw_i_ie(i,j,1,k,ie)=elem(ie)%Dinv(i,j,1,1)*v12_kie(i,j,k,ie) + elem(ie)%Dinv(i,j,2,1)*v22_kie(i,j,k,ie)
+             gradw_i_ie(i,j,2,k,ie)=elem(ie)%Dinv(i,j,1,2)*v12_kie(i,j,k,ie) + elem(ie)%Dinv(i,j,2,2)*v22_kie(i,j,k,ie)
+           enddo        
+         enddo
+     enddo        
+  enddo
 #ifdef OPENACC_HOMME
 !$acc end parallel loop     
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector collapse(2) present(elem,v_gradw_i_ie,gradw_i_ie,v_i_ie,w_tens_ie,w_vadv_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
-#endif     
-  do k=1,nlev
-     do ie=nets,nete !nete      
-        v_gradw_i_ie(ie,:,:,k) = v_i_ie(ie,:,:,1,k)*gradw_i_ie(ie,:,:,1,k) + v_i_ie(ie,:,:,2,k)*gradw_i_ie(ie,:,:,2,k)
-        ! w - tendency on interfaces 
-        w_tens_ie(ie,:,:,k) = (-w_vadv_i_ie(ie,:,:,k) - v_gradw_i_ie(ie,:,:,k))*scale1 - scale2*g*(1-dpnh_dp_i_ie(ie,:,:,k) )
+!$acc parallel loop gang present(elem,v_gradw_i_ie,gradw_i_ie,v_i_ie,w_tens_ie,w_vadv_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
+#endif    
+  do ie=nets,nete !nete  
+     do k=1,nlev
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np      
+            v_gradw_i_ie(i,j,k,ie) = v_i_ie(i,j,1,k,ie)*gradw_i_ie(i,j,1,k,ie) + v_i_ie(i,j,2,k,ie)*gradw_i_ie(i,j,2,k,ie)
+            ! w - tendency on interfaces 
+            w_tens_ie(i,j,k,ie) = (-w_vadv_i_ie(i,j,k,ie) - v_gradw_i_ie(i,j,k,ie))*scale1 - scale2*g*(1-dpnh_dp_i_ie(i,j,k,ie) )
 
-        ! phi - tendency on interfaces
-        v_gradphinh_i_ie(ie,:,:,k) = v_i_ie(ie,:,:,1,k)*gradphinh_i_ie(ie,:,:,1,k) &
-             +v_i_ie(ie,:,:,2,k)*gradphinh_i_ie(ie,:,:,2,k) 
-        phi_tens_ie(ie,:,:,k) =  (-phi_vadv_i_ie(ie,:,:,k) - v_gradphinh_i_ie(ie,:,:,k))*scale1 &
-          + scale2*g*elem(ie)%state%w_i(:,:,k,n0)
-     end do
-  end do 
+            ! phi - tendency on interfaces
+            v_gradphinh_i_ie(i,j,k,ie) = v_i_ie(i,j,1,k,ie)*gradphinh_i_ie(i,j,1,k,ie) &
+                +v_i_ie(i,j,2,k,ie)*gradphinh_i_ie(i,j,2,k,ie) 
+            phi_tens_ie(i,j,k,ie) =  (-phi_vadv_i_ie(i,j,k,ie) - v_gradphinh_i_ie(i,j,k,ie))*scale1 &
+                + scale2*g*elem(ie)%state%w_i(i,j,k,n0)
+          enddo
+        enddo 
+     enddo
+  enddo 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif  
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector private(k) present(elem,v_gradw_i_ie,v_i_ie,gradw_i_ie,w_tens_ie,w_vadv_i_ie,v_gradw_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
+!$acc parallel loop gang  private(k) present(elem,v_gradw_i_ie,v_i_ie,gradw_i_ie,w_tens_ie,w_vadv_i_ie,v_gradw_i_ie,dpnh_dp_i_ie,v_gradphinh_i_ie,gradphinh_i_ie,phi_tens_ie,phi_vadv_i_ie)
 #endif     
   do ie=nets,nete !nete
      ! k =nlevp case, all terms in the imex methods are treated explicitly at the boundary
@@ -1583,18 +1695,23 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
     ! Following two statements are already executed in previous calculation
     !gradphinh_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%phinh_i(:,:,k,n0),deriv,elem(ie)%Dinv)
     !gradw_i_ie(ie,:,:,:,k)   = gradient_sphere(elem(ie)%state%w_i(:,:,k,n0),deriv,elem(ie)%Dinv)
-    
-    
-    v_gradw_i_ie(ie,:,:,k) = v_i_ie(ie,:,:,1,k)*gradw_i_ie(ie,:,:,1,k) + v_i_ie(ie,:,:,2,k)*gradw_i_ie(ie,:,:,2,k)
-    ! w - tendency on interfaces
-    w_tens_ie(ie,:,:,k) = (-w_vadv_i_ie(ie,:,:,k) - v_gradw_i_ie(ie,:,:,k))*scale1 - scale1*g*(1-dpnh_dp_i_ie(ie,:,:,k) )
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+     do j=1,np
+       do i=1,np
+         v_gradw_i_ie(i,j,k,ie) = v_i_ie(i,j,1,k,ie)*gradw_i_ie(i,j,1,k,ie) + v_i_ie(i,j,2,k,ie)*gradw_i_ie(i,j,2,k,ie)
+         ! w - tendency on interfaces
+         w_tens_ie(i,j,k,ie) = (-w_vadv_i_ie(i,j,k,ie) - v_gradw_i_ie(i,j,k,ie))*scale1 - scale1*g*(1-dpnh_dp_i_ie(i,j,k,ie) )
 
-    ! phi - tendency on interfaces
-    v_gradphinh_i_ie(ie,:,:,k) = v_i_ie(ie,:,:,1,k)*gradphinh_i_ie(ie,:,:,1,k) &
-     +v_i_ie(ie,:,:,2,k)*gradphinh_i_ie(ie,:,:,2,k)
-    phi_tens_ie(ie,:,:,k) =  (-phi_vadv_i_ie(ie,:,:,k) - v_gradphinh_i_ie(ie,:,:,k))*scale1 &
-    + scale1*g*elem(ie)%state%w_i(:,:,k,n0)
-  end do 
+         ! phi - tendency on interfaces
+         v_gradphinh_i_ie(i,j,k,ie) = v_i_ie(i,j,1,k,ie)*gradphinh_i_ie(i,j,1,k,ie) &
+            +v_i_ie(i,j,2,k,ie)*gradphinh_i_ie(i,j,2,k,ie)
+        phi_tens_ie(i,j,k,ie) =  (-phi_vadv_i_ie(i,j,k,ie) - v_gradphinh_i_ie(i,j,k,ie))*scale1 &
+            + scale1*g*elem(ie)%state%w_i(i,j,k,n0)
+      enddo
+    enddo
+  enddo 
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif  
@@ -1605,16 +1722,23 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! ================================================   
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang collapse(2) present(elem,v_theta_ie,v_theta_ie,KE_ie,temp_ie)
+!$acc parallel loop gang present(elem,v_theta_ie,v_theta_ie,KE_ie,temp_ie)
 #endif 
   do ie=nets,nete !nete        
-     do k=1,nlev   
-        ! theta - tendency on levels
-        v_theta_ie(ie,:,:,1,k)=elem(ie)%state%v(:,:,1,k,n0)*elem(ie)%state%vtheta_dp(:,:,k,n0)
-        v_theta_ie(ie,:,:,2,k)=elem(ie)%state%v(:,:,2,k,n0)*elem(ie)%state%vtheta_dp(:,:,k,n0)
-        KE_ie(ie,:,:,k) = ( elem(ie)%state%v(:,:,1,k,n0)**2 + elem(ie)%state%v(:,:,2,k,n0)**2)/2
-        temp_ie(ie,:,:,k) = (elem(ie)%state%w_i(:,:,k,n0)**2 + &
-             elem(ie)%state%w_i(:,:,k+1,n0)**2)/4
+     do k=1,nlev 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np 
+            ! theta - tendency on levels
+            v_theta_ie(i,j,1,k,ie)=elem(ie)%state%v(i,j,1,k,n0)*elem(ie)%state%vtheta_dp(i,j,k,n0)
+            v_theta_ie(i,j,2,k,ie)=elem(ie)%state%v(i,j,2,k,n0)*elem(ie)%state%vtheta_dp(i,j,k,n0)
+            KE_ie(i,j,k,ie) = ( elem(ie)%state%v(i,j,1,k,n0)**2 + elem(ie)%state%v(i,j,2,k,n0)**2)/2
+            temp_ie(i,j,k,ie) = (elem(ie)%state%w_i(i,j,k,n0)**2 + &
+                elem(ie)%state%w_i(i,j,k+1,n0)**2)/4
+          end do 
+        end do
      end do 
   end do 
 #ifdef OPENACC_HOMME
@@ -1627,18 +1751,25 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
     call gradient_sphere_openacc(exner_ie,deriv,elem,nets,nete,nlev,gradexner_ie)
   
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang collapse(2) present(elem,theta_tens_ie,theta_vadv_ie,div_v_theta_ie,wvor_ie,gradw_i_ie)
+!$acc parallel loop gang present(elem,theta_tens_ie,theta_vadv_ie,div_v_theta_ie,wvor_ie,gradw_i_ie)
 #endif     
   do ie=nets,nete !nete 
-     do k=1,nlev           
-        ! theta - tendency on levels
-        theta_tens_ie(ie,:,:,k)=(-theta_vadv_ie(ie,:,:,k)-div_v_theta_ie(ie,:,:,k))*scale1
+     do k=1,nlev 
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif        
+        do j=1,np
+          do i=1,np          
+            ! theta - tendency on levels
+            theta_tens_ie(i,j,k,ie)=(-theta_vadv_ie(i,j,k,ie)-div_v_theta_ie(i,j,k,ie))*scale1
 
-        ! w vorticity correction term       
-        wvor_ie(ie,:,:,1,k) = wvor_ie(ie,:,:,1,k) - (elem(ie)%state%w_i(:,:,k,n0)*gradw_i_ie(ie,:,:,1,k) +&
-             elem(ie)%state%w_i(:,:,k+1,n0)*gradw_i_ie(ie,:,:,1,k+1))/2
-        wvor_ie(ie,:,:,2,k) = wvor_ie(ie,:,:,2,k) - (elem(ie)%state%w_i(:,:,k,n0)*gradw_i_ie(ie,:,:,2,k) +&
-             elem(ie)%state%w_i(:,:,k+1,n0)*gradw_i_ie(ie,:,:,2,k+1))/2
+            ! w vorticity correction term       
+            wvor_ie(i,j,1,k,ie) = wvor_ie(i,j,1,k,ie) - (elem(ie)%state%w_i(i,j,k,n0)*gradw_i_ie(i,j,1,k,ie) +&
+             elem(ie)%state%w_i(i,j,k+1,n0)*gradw_i_ie(i,j,1,k+1,ie))/2
+            wvor_ie(i,j,2,k,ie) = wvor_ie(i,j,2,k,ie) - (elem(ie)%state%w_i(i,j,k,n0)*gradw_i_ie(i,j,2,k,ie) +&
+             elem(ie)%state%w_i(i,j,k+1,n0)*gradw_i_ie(i,j,2,k+1,ie))/2
+          end do 
+        end do
      end do 
   end do             
 #ifdef OPENACC_HOMME
@@ -1646,10 +1777,10 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 #endif
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang collapse(2)private(v1,v2,mgrad_ie_tmp1,mgrad_ie_tmp2) present(elem,dpnh_dp_i_ie,gradphinh_i_ie,vtens1_ie,v_vadv_ie,vort_ie,gradKE_ie,vtheta_ie,gradexner_ie,wvor_ie,vtens2_ie)
+!$acc parallel loop gang private(v1,v2,mgrad_ie_tmp1,mgrad_ie_tmp2) present(elem,dpnh_dp_i_ie,gradphinh_i_ie,vtens1_ie,v_vadv_ie,vort_ie,gradKE_ie,vtheta_ie,gradexner_ie,wvor_ie,vtens2_ie)
 #endif
-  do k=1,nlev 
-     do ie=nets,nete !nete            
+  do ie=nets,nete !nete 
+     do k=1,nlev            
    
         ! special averaging of dpnh/dpi grad(phi) for E conservation
         !mgrad_ie(ie,:,:,1,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,1,k)+ &
@@ -1657,30 +1788,31 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         !mgrad_ie(ie,:,:,2,k) = (dpnh_dp_i_ie(ie,:,:,k)*gradphinh_i_ie(ie,:,:,2,k)+ &
         !      dpnh_dp_i_ie(ie,:,:,k+1)*gradphinh_i_ie(ie,:,:,2,k+1))/2
 
-
-	!!$acc loop collapse(2) vector
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif
         do j=1,np
            do i=1,np
-              mgrad_ie_tmp1 = (dpnh_dp_i_ie(ie,i,j,k)*gradphinh_i_ie(ie,i,j,1,k)+ &
-                    dpnh_dp_i_ie(ie,i,j,k+1)*gradphinh_i_ie(ie,i,j,1,k+1))/2
-              mgrad_ie_tmp2 = (dpnh_dp_i_ie(ie,i,j,k)*gradphinh_i_ie(ie,i,j,2,k)+ &
-                    dpnh_dp_i_ie(ie,i,j,k+1)*gradphinh_i_ie(ie,i,j,2,k+1))/2
+              mgrad_ie_tmp1 = (dpnh_dp_i_ie(i,j,k,ie)*gradphinh_i_ie(i,j,1,k,ie)+ &
+                    dpnh_dp_i_ie(i,j,k+1,ie)*gradphinh_i_ie(i,j,1,k+1,ie))/2
+              mgrad_ie_tmp2 = (dpnh_dp_i_ie(i,j,k,ie)*gradphinh_i_ie(i,j,2,k,ie)+ &
+                    dpnh_dp_i_ie(i,j,k+1,ie)*gradphinh_i_ie(i,j,2,k+1,ie))/2
 
               v1     = elem(ie)%state%v(i,j,1,k,n0)
               v2     = elem(ie)%state%v(i,j,2,k,n0)
 
-              vtens1_ie(ie,i,j,k) = (-v_vadv_ie(ie,i,j,1,k) &
-                   + v2*(elem(ie)%fcor(i,j) + vort_ie(ie,i,j,k))        &
-                   - gradKE_ie(ie,i,j,1,k) - mgrad_ie_tmp1 &
-                  -Cp*vtheta_ie(ie,i,j,k)*gradexner_ie(ie,i,j,1,k)&
-                  -wvor_ie(ie,i,j,1,k) )*scale1
+              vtens1_ie(i,j,k,ie) = (-v_vadv_ie(i,j,1,k,ie) &
+                   + v2*(elem(ie)%fcor(i,j) + vort_ie(i,j,k,ie))        &
+                   - gradKE_ie(i,j,1,k,ie) - mgrad_ie_tmp1 &
+                  -Cp*vtheta_ie(i,j,k,ie)*gradexner_ie(i,j,1,k,ie)&
+                  -wvor_ie(i,j,1,k,ie) )*scale1
 
 
-              vtens2_ie(ie,i,j,k) = (-v_vadv_ie(ie,i,j,2,k) &
-                   - v1*(elem(ie)%fcor(i,j) + vort_ie(ie,i,j,k)) &
-                   - gradKE_ie(ie,i,j,2,k) - mgrad_ie_tmp2 &
-                  -Cp*vtheta_ie(ie,i,j,k)*gradexner_ie(ie,i,j,2,k) &
-                  -wvor_ie(ie,i,j,2,k) )*scale1
+              vtens2_ie(i,j,k,ie) = (-v_vadv_ie(i,j,2,k,ie) &
+                   - v1*(elem(ie)%fcor(i,j) + vort_ie(i,j,k,ie)) &
+                   - gradKE_ie(i,j,2,k,ie) - mgrad_ie_tmp2 &
+                  -Cp*vtheta_ie(i,j,k,ie)*gradexner_ie(i,j,2,k,ie) &
+                  -wvor_ie(i,j,2,k,ie) )*scale1
            end do
         end do     
      end do 
@@ -1738,37 +1870,37 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         do j=1,np
           do i=1,np 
             do k =1,nlev               
-               d_eta_dot_dpdn_dn=(eta_dot_dpdn_ie(ie,i,j,k+1)-eta_dot_dpdn_ie(ie,i,j,k))
+               d_eta_dot_dpdn_dn=(eta_dot_dpdn_ie(i,j,k+1,ie)-eta_dot_dpdn_ie(i,j,k,ie))
                !  Form horiz advection of KE-u
                elem(ie)%accum%KEu_horiz1(i,j)=elem(ie)%accum%KEu_horiz1(i,j) &
                     -elem(ie)%state%dp3d(i,j,k,n0)*( &
-                    elem(ie)%state%v(i,j,1,k,n0)*gradKE_ie(ie,i,j,1,k) + &
-                    elem(ie)%state%v(i,j,2,k,n0)*gradKE_ie(ie,i,j,2,k) )
+                    elem(ie)%state%v(i,j,1,k,n0)*gradKE_ie(i,j,1,k,ie) + &
+                    elem(ie)%state%v(i,j,2,k,n0)*gradKE_ie(i,j,2,k,ie) )
                elem(ie)%accum%KEu_horiz2(i,j)=elem(ie)%accum%KEu_horiz2(i,j)              &
-                    -KE_ie(ie,i,j,k)*divdp_ie(ie,i,j,k)
+                    -KE_ie(i,j,k,ie)*divdp_ie(i,j,k,ie)
                !  Form horiz advection of KE-w
                elem(ie)%accum%KEw_horiz1(i,j)=elem(ie)%accum%KEw_horiz1(i,j)-   &
                     elem(ie)%state%dp3d(i,j,k,n0) * (&
-                    elem(ie)%state%w_i(i,j,k,n0) * v_gradw_i_ie(ie,i,j,k)    + &
-                    elem(ie)%state%w_i(i,j,k+1,n0) * v_gradw_i_ie(ie,i,j,k+1) )/2
+                    elem(ie)%state%w_i(i,j,k,n0) * v_gradw_i_ie(i,j,k,ie)    + &
+                    elem(ie)%state%w_i(i,j,k+1,n0) * v_gradw_i_ie(i,j,k+1,ie) )/2
                elem(ie)%accum%KEw_horiz2(i,j)=elem(ie)%accum%KEw_horiz2(i,j)-   &
-                    divdp_ie(ie,i,j,k)*(elem(ie)%state%w_i(i,j,k,n0)**2 + &
+                    divdp_ie(i,j,k,ie)*(elem(ie)%state%w_i(i,j,k,n0)**2 + &
                     elem(ie)%state%w_i(i,j,k+1,n0)**2 ) /4
                elem(ie)%accum%KEw_horiz3(i,j)=elem(ie)%accum%KEw_horiz3(i,j)   &
-                    -elem(ie)%state%dp3d(i,j,k,n0) * (elem(ie)%state%v(i,j,1,k,n0) * wvor_ie(ie,i,j,1,k) +  &
-                    elem(ie)%state%v(i,j,2,k,n0) * wvor_ie(ie,i,j,2,k))
+                    -elem(ie)%state%dp3d(i,j,k,n0) * (elem(ie)%state%v(i,j,1,k,n0) * wvor_ie(i,j,1,k,ie) +  &
+                    elem(ie)%state%v(i,j,2,k,n0) * wvor_ie(i,j,2,k,ie))
                !  Form vertical advection of KE-u 
                elem(ie)%accum%KEu_vert1(i,j)=elem(ie)%accum%KEu_vert1(i,j)- &
-                    (elem(ie)%state%v(i,j,1,k,n0) * v_vadv_ie(ie,i,j,1,k) +            &
-                    elem(ie)%state%v(i,j,2,k,n0) *v_vadv_ie(ie,i,j,2,k))*elem(ie)%state%dp3d(i,j,k,n0)
+                    (elem(ie)%state%v(i,j,1,k,n0) * v_vadv_ie(i,j,1,k,ie) +            &
+                    elem(ie)%state%v(i,j,2,k,n0) *v_vadv_ie(i,j,2,k,ie))*elem(ie)%state%dp3d(i,j,k,n0)
                elem(ie)%accum%KEu_vert2(i,j)=elem(ie)%accum%KEu_vert2(i,j)- &
                     0.5*((elem(ie)%state%v(i,j,1,k,n0))**2 +                     &
                     (elem(ie)%state%v(i,j,2,k,n0))**2)*d_eta_dot_dpdn_dn
                !  Form vertical advection of KE-w
                elem(ie)%accum%KEw_vert1(i,j)=elem(ie)%accum%KEw_vert1(i,j) - &
                     elem(ie)%state%dp3d(i,j,k,n0) * &
-                    (w_vadv_i_ie(ie,i,j,k)*elem(ie)%state%w_i(i,j,k,n0)+ &
-                    w_vadv_i_ie(ie,i,j,k+1)*elem(ie)%state%w_i(i,j,k+1,n0))/2
+                    (w_vadv_i_ie(i,j,k,ie)*elem(ie)%state%w_i(i,j,k,n0)+ &
+                    w_vadv_i_ie(i,j,k+1,ie)*elem(ie)%state%w_i(i,j,k+1,n0))/2
                
                elem(ie)%accum%KEw_vert2(i,j)=elem(ie)%accum%KEw_vert2(i,j)      &
                     -d_eta_dot_dpdn_dn* &
@@ -1777,40 +1909,40 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
                
                !  Form IEvert1
                elem(ie)%accum%IEvert1(i,j)=elem(ie)%accum%IEvert1(i,j)      &
-                    -exner_ie(ie,i,j,k)*theta_vadv_ie(ie,i,j,k)                        
+                    -exner_ie(i,j,k,ie)*theta_vadv_ie(i,j,k,ie)                        
                ! Form IEvert2 
                ! here use of dpnh_dp_i on boundry (with incorrect data)
                ! is harmess becuase eta_dot_dpdn=0
                elem(ie)%accum%IEvert2(i,j)=elem(ie)%accum%IEvert2(i,j)      &
-                    + ( dpnh_dp_i_ie(ie,i,j,k)*eta_dot_dpdn_ie(ie,i,j,k)+ &
-                        dpnh_dp_i_ie(ie,i,j,k+1)*eta_dot_dpdn_ie(ie,i,j,k+1)) &
+                    + ( dpnh_dp_i_ie(i,j,k,ie)*eta_dot_dpdn_ie(i,j,k,ie)+ &
+                        dpnh_dp_i_ie(i,j,k+1,ie)*eta_dot_dpdn_ie(i,j,k+1,ie)) &
                     *(elem(ie)%state%phinh_i(i,j,k+1,n0)-elem(ie)%state%phinh_i(i,j,k,n0))/2
                
                !  Form PEhoriz1
                elem(ie)%accum%PEhoriz1(i,j)=(elem(ie)%accum%PEhoriz1(i,j))  &
-                    -phi_ie(ie,i,j,k)*divdp_ie(ie,i,j,k) 
+                    -phi_ie(i,j,k,ie)*divdp_ie(i,j,k,ie) 
                !  Form PEhoriz2
                elem(ie)%accum%PEhoriz2(i,j)=elem(ie)%accum%PEhoriz2(i,j)    &
                     -elem(ie)%state%dp3d(i,j,k,n0)* &
                     (elem(ie)%state%v(i,j,1,k,n0)*                          &
-                    (gradphinh_i_ie(ie,i,j,1,k)+gradphinh_i_ie(ie,i,j,1,k+1))/2  +      &
+                    (gradphinh_i_ie(i,j,1,k,ie)+gradphinh_i_ie(i,j,1,k+1,ie))/2  +      &
                     elem(ie)%state%v(i,j,2,k,n0)*                           &
-                    (gradphinh_i_ie(ie,i,j,2,k)+gradphinh_i_ie(ie,i,j,2,k+1))/2  )
+                    (gradphinh_i_ie(i,j,2,k,ie)+gradphinh_i_ie(i,j,2,k+1,ie))/2  )
                
                !  Form PEvert1
                elem(ie)%accum%PEvert1(i,j) = elem(ie)%accum%PEvert1(i,j)    &
-                    -phi_ie(ie,i,j,k)*d_eta_dot_dpdn_dn                                 
+                    -phi_ie(i,j,k,ie)*d_eta_dot_dpdn_dn                                 
                elem(ie)%accum%PEvert2(i,j) = elem(ie)%accum%PEvert2(i,j)     &
-                    -elem(ie)%state%dp3d(i,j,k,n0)*(phi_vadv_i_ie(ie,i,j,k)+phi_vadv_i_ie(ie,i,j,k+1))/2
+                    -elem(ie)%state%dp3d(i,j,k,n0)*(phi_vadv_i_ie(i,j,k,ie)+phi_vadv_i_ie(i,j,k+1,ie))/2
                
                !  Form T01
                elem(ie)%accum%T01(i,j)=elem(ie)%accum%T01(i,j)               &
                     -(Cp*elem(ie)%state%vtheta_dp(i,j,k,n0))                       &
-                    *(gradexner_ie(ie,i,j,1,k)*elem(ie)%state%v(i,j,1,k,n0) +           &
-                    gradexner_ie(ie,i,j,2,k)*elem(ie)%state%v(i,j,2,k,n0))              
+                    *(gradexner_ie(i,j,1,k,ie)*elem(ie)%state%v(i,j,1,k,n0) +           &
+                    gradexner_ie(i,j,2,k,ie)*elem(ie)%state%v(i,j,2,k,n0))              
                !  Form S1 
                elem(ie)%accum%S1(i,j)=elem(ie)%accum%S1(i,j)                 &
-                    -Cp*exner_ie(ie,i,j,k)*div_v_theta_ie(ie,i,j,k)
+                    -Cp*exner_ie(i,j,k,ie)*div_v_theta_ie(i,j,k,ie)
 
                !  Form P1  = -P2  (no reason to compute P2?)
                elem(ie)%accum%P1(i,j)=elem(ie)%accum%P1(i,j) -g*elem(ie)%state%dp3d(i,j,k,n0)* &
@@ -1835,20 +1967,20 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
       ! these terms are better easier to compute by summing interfaces
       do k=2,nlev
          elem(ie)%accum%T2(:,:)=elem(ie)%accum%T2(:,:)+                &
-              (g*elem(ie)%state%w_i(:,:,k,n0)-v_gradphinh_i_ie(ie,:,:,k)) &
-               * dpnh_dp_i_ie(ie,:,:,k)*dp3d_i_ie(ie,:,:,k)
+              (g*elem(ie)%state%w_i(:,:,k,n0)-v_gradphinh_i_ie(:,:,k,ie)) &
+               * dpnh_dp_i_ie(:,:,k,ie)*dp3d_i_ie(:,:,k,ie)
       enddo
       ! boundary terms
       do k=1,nlevp,nlev
          elem(ie)%accum%T2(:,:)=elem(ie)%accum%T2(:,:)+                &
-           (g*elem(ie)%state%w_i(:,:,k,n0)-v_gradphinh_i_ie(ie,:,:,k)) &
-           * dpnh_dp_i_ie(ie,:,:,k)*dp3d_i_ie(ie,:,:,k)/2
+           (g*elem(ie)%state%w_i(:,:,k,n0)-v_gradphinh_i_ie(:,:,k,ie)) &
+           * dpnh_dp_i_ie(:,:,k,ie)*dp3d_i_ie(:,:,k,ie)/2
       enddo
       ! boundary term is incorrect.  save the term so we can correct it
       ! once we have coorect value of dpnh_dp_i:
       elem(ie)%accum%T2_nlevp_term(:,:)=&
-           (g*elem(ie)%state%w_i(:,:,nlevp,n0)-v_gradphinh_i_ie(ie,:,:,nlevp)) &
-           * dp3d_i_ie(ie,:,:,nlevp)/2
+           (g*elem(ie)%state%w_i(:,:,nlevp,n0)-v_gradphinh_i_ie(:,:,nlevp,ie)) &
+           * dp3d_i_ie(:,:,nlevp,ie)/2
     end do
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
@@ -1856,24 +1988,31 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
              
    endif 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang collapse(2) present(elem,vtens1_ie,vtens2_ie,w_tens_ie,theta_tens_ie,phi_tens_ie,divdp_ie,eta_dot_dpdn_ie)
+!$acc parallel loop gang present(elem,vtens1_ie,vtens2_ie,w_tens_ie,theta_tens_ie,phi_tens_ie,divdp_ie,eta_dot_dpdn_ie)
 #endif
   do ie=nets,nete !nete
      do k=1,nlev
-        elem(ie)%state%v(:,:,1,k,np1) = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%v(:,:,1,k,nm1) &
-          + dt2*vtens1_ie(ie,:,:,k) )
-        elem(ie)%state%v(:,:,2,k,np1) = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%v(:,:,2,k,nm1) &
-          +  dt2*vtens2_ie(ie,:,:,k) )
-        elem(ie)%state%w_i(:,:,k,np1)    = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%w_i(:,:,k,nm1)   &
-          + dt2*w_tens_ie(ie,:,:,k))
-        elem(ie)%state%vtheta_dp(:,:,k,np1) = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%vtheta_dp(:,:,k,nm1) &
-          + dt2*theta_tens_ie(ie,:,:,k))
-        elem(ie)%state%phinh_i(:,:,k,np1)   = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%phinh_i(:,:,k,nm1) & 
-          + dt2*phi_tens_ie(ie,:,:,k))
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+           do i=1,np
+             do j=1,np     
+        	elem(ie)%state%v(i,j,1,k,np1) = elem(ie)%spheremp(i,j)*(scale3 * elem(ie)%state%v(i,j,1,k,nm1) &
+          	   + dt2*vtens1_ie(i,j,k,ie) )
+        	elem(ie)%state%v(i,j,2,k,np1) = elem(ie)%spheremp(i,j)*(scale3 * elem(ie)%state%v(i,j,2,k,nm1) &
+          	   +  dt2*vtens2_ie(i,j,k,ie) )
+        	elem(ie)%state%w_i(i,j,k,np1)    = elem(ie)%spheremp(i,j)*(scale3 * elem(ie)%state%w_i(i,j,k,nm1)   &
+          	   + dt2*w_tens_ie(i,j,k,ie))
+        	elem(ie)%state%vtheta_dp(i,j,k,np1) = elem(ie)%spheremp(i,j)*(scale3 * elem(ie)%state%vtheta_dp(i,j,k,nm1) &
+          	   + dt2*theta_tens_ie(i,j,k,ie))
+        	elem(ie)%state%phinh_i(i,j,k,np1)   = elem(ie)%spheremp(i,j)*(scale3 * elem(ie)%state%phinh_i(i,j,k,nm1) & 
+          	   + dt2*phi_tens_ie(i,j,k,ie))
 
-        elem(ie)%state%dp3d(:,:,k,np1) = &
-             elem(ie)%spheremp(:,:) * (scale3 * elem(ie)%state%dp3d(:,:,k,nm1) - &
-             scale1*dt2 * (divdp_ie(ie,:,:,k) + eta_dot_dpdn_ie(ie,:,:,k+1)-eta_dot_dpdn_ie(ie,:,:,k)))
+        	elem(ie)%state%dp3d(i,j,k,np1) = &
+             	   elem(ie)%spheremp(i,j) * (scale3 * elem(ie)%state%dp3d(i,j,k,nm1) - &
+                   scale1*dt2 * (divdp_ie(i,j,k,ie) + eta_dot_dpdn_ie(i,j,k+1,ie)-eta_dot_dpdn_ie(i,j,k,ie)))
+             enddo
+           end do                   
      enddo
   end do 
 #ifdef OPENACC_HOMME
@@ -1889,7 +2028,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   
      k=nlevp
      elem(ie)%state%w_i(:,:,k,np1)    = elem(ie)%spheremp(:,:)*(scale3 * elem(ie)%state%w_i(:,:,k,nm1)   &
-          + dt2*w_tens_ie(ie,:,:,k))
+          + dt2*w_tens_ie(:,:,k,ie))
 
    end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
@@ -1929,7 +2068,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$acc exit data delete(gradphinh_i_ie, gradKE_ie, wvor_ie, gradw_i_ie, v_gradw_i_ie)
 !$acc exit data delete(v_theta_ie, div_v_theta_ie, v_gradphinh_i_ie, v_i_ie, v_vadv_ie, theta_vadv_ie)
 !$acc exit data delete(w_vadv_i_ie, phi_vadv_i_ie, vtens1_ie, vtens2_ie, w_tens_ie, theta_tens_ie)
-!$acc exit data delete(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie)
+!$acc exit data delete(phi_tens_ie, pi_ie, pi_i_ie, vgrad_p_ie, temp_ie, vtemp_ie,v11_kie,v21_kie,v12_kie,v22_kie)
 #endif   
     
   call t_startf('caar_bexchV')
@@ -1961,16 +2100,23 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! Scale tendencies by inverse mass matrix
      ! ====================================================
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang collapse(2) present(elem,edge_g,dpnh_dp_i_ie) 
+!$acc parallel loop gang present(elem,edge_g,dpnh_dp_i_ie) 
 #endif   
   do ie=nets,nete
      do k=1,nlev
-        elem(ie)%state%dp3d(:,:,k,np1) =elem(ie)%rspheremp(:,:)*elem(ie)%state%dp3d(:,:,k,np1)
-        elem(ie)%state%vtheta_dp(:,:,k,np1)=elem(ie)%rspheremp(:,:)*elem(ie)%state%vtheta_dp(:,:,k,np1)
-        elem(ie)%state%w_i(:,:,k,np1)    =elem(ie)%rspheremp(:,:)*elem(ie)%state%w_i(:,:,k,np1)
-        elem(ie)%state%phinh_i(:,:,k,np1)=elem(ie)%rspheremp(:,:)*elem(ie)%state%phinh_i(:,:,k,np1)
-        elem(ie)%state%v(:,:,1,k,np1)  =elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,1,k,np1)
-        elem(ie)%state%v(:,:,2,k,np1)  =elem(ie)%rspheremp(:,:)*elem(ie)%state%v(:,:,2,k,np1)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+        do i=1,np
+          do j=1,np
+            elem(ie)%state%dp3d(i,j,k,np1) =elem(ie)%rspheremp(i,j)*elem(ie)%state%dp3d(i,j,k,np1)
+            elem(ie)%state%vtheta_dp(i,j,k,np1)=elem(ie)%rspheremp(i,j)*elem(ie)%state%vtheta_dp(i,j,k,np1)
+            elem(ie)%state%w_i(i,j,k,np1)    =elem(ie)%rspheremp(i,j)*elem(ie)%state%w_i(i,j,k,np1)
+            elem(ie)%state%phinh_i(i,j,k,np1)=elem(ie)%rspheremp(i,j)*elem(ie)%state%phinh_i(i,j,k,np1)
+            elem(ie)%state%v(i,j,1,k,np1)  =elem(ie)%rspheremp(i,j)*elem(ie)%state%v(i,j,1,k,np1)
+            elem(ie)%state%v(i,j,2,k,np1)  =elem(ie)%rspheremp(i,j)*elem(ie)%state%v(i,j,2,k,np1)
+          end do
+        end do
      end do
   end do
 #ifdef OPENACC_HOMME
@@ -1988,7 +2134,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
      ! now we can compute the correct dphn_dp_i() at the surface:
      if (.not. theta_hydrostatic_mode) then
         ! solve for (dpnh_dp_i-1)
-        dpnh_dp_i_ie(ie,:,:,nlevp) = 1 + &
+        dpnh_dp_i_ie(:,:,nlevp,ie) = 1 + &
              ((elem(ie)%state%v(:,:,1,nlev,np1)*elem(ie)%derived%gradphis(:,:,1) + &
              elem(ie)%state%v(:,:,2,nlev,np1)*elem(ie)%derived%gradphis(:,:,2))/g - &
              elem(ie)%state%w_i(:,:,nlevp,np1)) / &
@@ -1997,18 +2143,18 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         
         ! update solution with new dpnh_dp_i value:
         elem(ie)%state%w_i(:,:,nlevp,np1) = elem(ie)%state%w_i(:,:,nlevp,np1) +&
-             scale1*g*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)
+             scale1*g*(dpnh_dp_i_ie(:,:,nlevp,ie)-1)
         elem(ie)%state%v(:,:,1,nlev,np1) =  elem(ie)%state%v(:,:,1,nlev,np1) -&
-             scale1*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)*elem(ie)%derived%gradphis(:,:,1)/2
+             scale1*(dpnh_dp_i_ie(:,:,nlevp,ie)-1)*elem(ie)%derived%gradphis(:,:,1)/2
         elem(ie)%state%v(:,:,2,nlev,np1) =  elem(ie)%state%v(:,:,2,nlev,np1) -&
-             scale1*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)*elem(ie)%derived%gradphis(:,:,2)/2
+             scale1*(dpnh_dp_i_ie(:,:,nlevp,ie)-1)*elem(ie)%derived%gradphis(:,:,2)/2
         
 
 #ifdef ENERGY_DIAGNOSTICS
         ! add in boundary term to T2 and S2 diagnostics:
         if (compute_diagnostics) then
            elem(ie)%accum%T2(:,:)=elem(ie)%accum%T2(:,:)+                &
-                elem(ie)%accum%T2_nlevp_term(:,:)*(dpnh_dp_i_ie(ie,:,:,nlevp)-1)
+                elem(ie)%accum%T2_nlevp_term(:,:)*(dpnh_dp_i_ie(:,:,nlevp,ie)-1)
            elem(ie)%accum%S2(:,:)=-elem(ie)%accum%T2(:,:)      
         endif
 #endif
@@ -2095,9 +2241,9 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   !real (kind=real_kind) :: dp3d_ie(nelemd,np,np,nlevp)
   real (kind=real_kind) :: w_n0_ie(nelemd,np,np,nlevp)    
   real (kind=real_kind) :: phi_n0_ie(nelemd,np,np,nlevp) 
-  real (kind=real_kind) :: pnh_ie(nelemd,np,np,nlev)     ! nh (nonydro) pressure
+  real (kind=real_kind) :: pnh_ie(np,np,nlev,nelemd)     ! nh (nonydro) pressure
   real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
-  real (kind=real_kind) :: dpnh_dp_i_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: dpnh_dp_i_ie(np,np,nlevp,nelemd)
   real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)     ! exner nh pressure    
   real (kind=real_kind) :: Ipiv_ie(nelemd,nlev,np,np)
   real (kind=real_kind) :: Fn_ie(nelemd,np,np,nlev),x_ie(nlev,np,np,nelemd)
@@ -2133,7 +2279,7 @@ call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,net
   
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,dp3d_i_ie,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
+!$acc parallel loop gang present(elem,dp3d_i_ie,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
 #endif  
   do ie=nets,nete 
     !itercount=0 
@@ -2147,7 +2293,7 @@ call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,net
 
    ! we first compute the initial Jacobian J0 and residual r0 and their infinity norms
      Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
-       - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
+       - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(:,:,1:nlev,ie))
 
   end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
@@ -2258,15 +2404,15 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
       call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,nets,nete,nlev)
 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
+!$acc parallel loop gang present(elem,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
 #endif 
     do ie=nets,nete
       ! update approximate solution of w
       elem(ie)%state%w_i(:,:,1:nlev,np1) = w_n0_ie(ie,:,:,1:nlev) - g*dt2 * &
-        (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
+        (1.0-dpnh_dp_i_ie(:,:,1:nlev,ie))
       ! update right-hand side of phi
       Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
-        - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(ie,:,:,1:nlev))
+        - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(:,:,1:nlev,ie))
     end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
