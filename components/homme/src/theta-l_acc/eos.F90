@@ -209,12 +209,33 @@ implicit none
 !$acc parallel loop gang vector present(elem,dpnh_dp_i,hvcoord,pi_ie,pi_i_ie)   
 #endif
   do ie=nets,nete   
-    pi_i_ie(:,:,1,ie)=hvcoord%hyai(1)*hvcoord%ps0
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+    do i=1,np
+      do j=1,np   
+        pi_i_ie(i,j,1,ie)=hvcoord%hyai(1)*hvcoord%ps0
+      enddo
+    enddo    
     do k=1,nlev
-       pi_i_ie(:,:,k+1,ie)=pi_i_ie(:,:,k,ie) + elem(ie)%state%dp3d(:,:,k,n0)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+      do i=1,np
+        do j=1,np       
+            pi_i_ie(i,j,k+1,ie)=pi_i_ie(i,j,k,ie) + elem(ie)%state%dp3d(i,j,k,n0)
+        enddo
+      enddo
     enddo
     do k=1,nlev
-       pi_ie(:,:,k,ie)=pi_i_ie(:,:,k,ie) + elem(ie)%state%dp3d(:,:,k,n0)/2
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+       do i=1,np
+         do j=1,np     
+            pi_ie(i,j,k,ie)=pi_i_ie(i,j,k,ie) + elem(ie)%state%dp3d(i,j,k,n0)/2
+         enddo
+       enddo
     enddo
   end do
 #ifdef OPENACC_HOMME
@@ -242,7 +263,7 @@ implicit none
 !  non-hydrostatic EOS
 !==============================================================
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang present(elem,pnh,exner,dpnh_dp_i,p_over_exner_ie) vector_length(np*np) 
+!$acc parallel loop gang present(elem,pnh,exner,dpnh_dp_i,p_over_exner_ie)  
 #endif
     do ie=nets,nete 
        do k=1,nlev
@@ -269,31 +290,57 @@ implicit none
 ! boundary terms
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
 #ifdef OPENACC_HOMME
-!$acc parallel loop gang vector present(elem,pnh,dpnh_dp_i,pnh_i_ie,dp3d_i_ie,pi_i_ie)   
+!$acc parallel loop gang present(elem,pnh,dpnh_dp_i,pnh_i_ie,dp3d_i_ie,pi_i_ie)   
 #endif
-     do ie=nets,nete  
-       pnh_i_ie(:,:,1,ie) = pi_i_ie(:,:,1,ie)   ! hydrostatic ptop    
-       ! surface boundary condition pnh_i determined by w equation to enforce
-       ! w b.c.  This is computed in the RHS calculation.  Here, we use
-       ! an approximation (hydrostatic) so that dpnh/dpi = 1
-       pnh_i_ie(:,:,nlevp,ie) = pnh(:,:,nlev,ie) + elem(ie)%state%dp3d(:,:,nlev,n0)/2
-       ! extrapolote NH perturbation:
-       !pnh_i(:,:,nlevp) = pi_i(:,:,nlevp) + (3*(pnh(:,:,nlev)-pi(:,:,nlev)) - (pnh(:,:,nlev-1)-pi(:,:,nlev-1)) )/2
-       ! compute d(pnh)/d(pi) at interfaces
-       ! use one-sided differences at boundaries
+     do ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+       do i=1,np
+         do j=1,np       
+            pnh_i_ie(i,j,1,ie) = pi_i_ie(i,j,1,ie)   ! hydrostatic ptop    
+            ! surface boundary condition pnh_i determined by w equation to enforce
+            ! w b.c.  This is computed in the RHS calculation.  Here, we use
+            ! an approximation (hydrostatic) so that dpnh/dpi = 1
+            pnh_i_ie(i,j,nlevp,ie) = pnh(i,j,nlev,ie) + elem(ie)%state%dp3d(i,j,nlev,n0)/2
+            ! extrapolote NH perturbation:
+            !pnh_i(:,:,nlevp) = pi_i(:,:,nlevp) + (3*(pnh(:,:,nlev)-pi(:,:,nlev)) - (pnh(:,:,nlev-1)-pi(:,:,nlev-1)) )/2
+            ! compute d(pnh)/d(pi) at interfaces
+            ! use one-sided differences at boundaries
 
-
-       dp3d_i_ie(:,:,1,ie) = elem(ie)%state%dp3d(:,:,1,n0)
-       dp3d_i_ie(:,:,nlevp,ie) = elem(ie)%state%dp3d(:,:,nlev,n0)
+            dp3d_i_ie(i,j,1,ie) = elem(ie)%state%dp3d(i,j,1,n0)
+            dp3d_i_ie(i,j,nlevp,ie) = elem(ie)%state%dp3d(i,j,nlev,n0)
+         enddo
+       enddo
        do k=2,nlev
-          dp3d_i_ie(:,:,k,ie)=(elem(ie)%state%dp3d(:,:,k,n0)+elem(ie)%state%dp3d(:,:,k-1,n0))/2
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+         do i=1,np
+           do j=1,np       
+             dp3d_i_ie(i,j,k,ie)=(elem(ie)%state%dp3d(i,j,k,n0)+elem(ie)%state%dp3d(i,j,k-1,n0))/2
+           enddo
+         enddo
        end do
-
-       dpnh_dp_i(:,:,1,ie)  = 2*(pnh(:,:,1,ie)-pnh_i_ie(:,:,1,ie))/dp3d_i_ie(:,:,1,ie)
-       dpnh_dp_i(:,:,nlevp,ie)  = 2*(pnh_i_ie(:,:,nlevp,ie)-pnh(:,:,nlev,ie))/dp3d_i_ie(:,:,nlevp,ie)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+       do i=1,np
+         do j=1,np
+            dpnh_dp_i(i,j,1,ie)  = 2*(pnh(i,j,1,ie)-pnh_i_ie(i,j,1,ie))/dp3d_i_ie(i,j,1,ie)
+            dpnh_dp_i(i,j,nlevp,ie)  = 2*(pnh_i_ie(i,j,nlevp,ie)-pnh(i,j,nlev,ie))/dp3d_i_ie(i,j,nlevp,ie)
+         enddo
+       enddo
        do k=2,nlev
-          dpnh_dp_i(:,:,k,ie) = (pnh(:,:,k,ie)-pnh(:,:,k-1,ie))/dp3d_i_ie(:,:,k,ie)        
-       end do
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+         do i=1,np
+           do j=1,np       
+             dpnh_dp_i(i,j,k,ie) = (pnh(i,j,k,ie)-pnh(i,j,k-1,ie))/dp3d_i_ie(i,j,k,ie)        
+           enddo
+         enddo
+       enddo
 
        !if (present(pnh_i_out)) then
        !   ! boundary values already computed.  interior only:

@@ -701,7 +701,6 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$acc parallel loop gang vector private(lap_v,lap_s) present(elem,dp_ref,deriv,nu_scale_top,stens,vtens)
 #endif      
      do ie=nets,nete
-        
         ! comptue mean flux
         if (nu_p>0) then
            elem(ie)%derived%dpdiss_ave(:,:,:)=elem(ie)%derived%dpdiss_ave(:,:,:)+&
@@ -767,7 +766,7 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
         enddo
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc parallel loop gang vector collapse(2) present(elem,theta_ref,phi_ref,dp_ref,stens,vtens)
+!$acc parallel loop gang present(elem,theta_ref,phi_ref,dp_ref,stens,vtens)
 #endif        
         do ie=nets,nete
            ! apply inverse mass matrix, accumulate tendencies
@@ -775,26 +774,32 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$omp parallel do private(k)
 #endif
            do k=1,nlev
-              vtens(:,:,1,k,ie)=dt*vtens(:,:,1,k,ie)*elem(ie)%rspheremp(:,:)  ! u
-              vtens(:,:,2,k,ie)=dt*vtens(:,:,2,k,ie)*elem(ie)%rspheremp(:,:)  ! v
-              stens(:,:,k,1,ie)=dt*stens(:,:,k,1,ie)*elem(ie)%rspheremp(:,:)  ! dp3d
-              stens(:,:,k,2,ie)=dt*stens(:,:,k,2,ie)*elem(ie)%rspheremp(:,:)  ! theta
-              stens(:,:,k,3,ie)=dt*stens(:,:,k,3,ie)*elem(ie)%rspheremp(:,:)  ! w
-              stens(:,:,k,4,ie)=dt*stens(:,:,k,4,ie)*elem(ie)%rspheremp(:,:)  ! phi
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+             do i=1,np
+               do j=1,np      
+                 vtens(i,j,1,k,ie)=dt*vtens(i,j,1,k,ie)*elem(ie)%rspheremp(i,j)  ! u
+                 vtens(i,j,2,k,ie)=dt*vtens(i,j,2,k,ie)*elem(ie)%rspheremp(i,j)  ! v
+                 stens(i,j,k,1,ie)=dt*stens(i,j,k,1,ie)*elem(ie)%rspheremp(i,j)  ! dp3d
+                 stens(i,j,k,2,ie)=dt*stens(i,j,k,2,ie)*elem(ie)%rspheremp(i,j)  ! theta
+                 stens(i,j,k,3,ie)=dt*stens(i,j,k,3,ie)*elem(ie)%rspheremp(i,j)  ! w
+                 stens(i,j,k,4,ie)=dt*stens(i,j,k,4,ie)*elem(ie)%rspheremp(i,j)  ! phi
 
-              !add ref state back
-              elem(ie)%state%vtheta_dp(:,:,k,nt)=elem(ie)%state%vtheta_dp(:,:,k,nt)+&
-                   theta_ref(ie,:,:,k)
-              elem(ie)%state%phinh_i(:,:,k,nt)=elem(ie)%state%phinh_i(:,:,k,nt)+&
-                   phi_ref(ie,:,:,k)
-              elem(ie)%state%dp3d(:,:,k,nt)=elem(ie)%state%dp3d(:,:,k,nt)+&
-                   dp_ref(ie,:,:,k)
-
-           enddo
+                 !add ref state back
+                 elem(ie)%state%vtheta_dp(i,j,k,nt)=elem(ie)%state%vtheta_dp(i,j,k,nt)+&
+                   theta_ref(ie,i,j,k)
+                 elem(ie)%state%phinh_i(i,j,k,nt)=elem(ie)%state%phinh_i(i,j,k,nt)+&
+                   phi_ref(ie,i,j,k)
+                 elem(ie)%state%dp3d(i,j,k,nt)=elem(ie)%state%dp3d(i,j,k,nt)+&
+                   dp_ref(ie,i,j,k)
+               enddo
+             enddo
+          enddo
      enddo
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!$acc parallel loop gang vector collapse(2) present(elem,stens,vtens)
+!$acc parallel loop gang present(elem,stens,vtens)
 #endif 
      do ie=nets,nete
 
@@ -802,17 +807,24 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 !$omp parallel do private(k)
 #endif
         do k=1,nlev
-           elem(ie)%state%v(:,:,:,k,nt)=elem(ie)%state%v(:,:,:,k,nt) + &
-                vtens(:,:,:,k,ie)
-           elem(ie)%state%w_i(:,:,k,nt)=elem(ie)%state%w_i(:,:,k,nt) &
-                +stens(:,:,k,3,ie)
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+          do i=1,np
+            do j=1,np
+               elem(ie)%state%v(i,j,:,k,nt)=elem(ie)%state%v(i,j,:,k,nt) + &
+                    vtens(i,j,:,k,ie)
+               elem(ie)%state%w_i(i,j,k,nt)=elem(ie)%state%w_i(i,j,k,nt) &
+                    +stens(i,j,k,3,ie)
            
-           elem(ie)%state%dp3d(:,:,k,nt)=elem(ie)%state%dp3d(:,:,k,nt) &
-                +stens(:,:,k,1,ie)
+               elem(ie)%state%dp3d(i,j,k,nt)=elem(ie)%state%dp3d(i,j,k,nt) &
+                    +stens(i,j,k,1,ie)
            
-           elem(ie)%state%phinh_i(:,:,k,nt)=elem(ie)%state%phinh_i(:,:,k,nt) &
-                +stens(:,:,k,4,ie)
-        enddo
+               elem(ie)%state%phinh_i(i,j,k,nt)=elem(ie)%state%phinh_i(i,j,k,nt) &
+                    +stens(i,j,k,4,ie)
+           enddo
+         enddo
+       enddo
      enddo
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
@@ -2239,14 +2251,14 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
   real (kind=real_kind) :: JacD_ie(nlev,np,np,nelemd)  , JacL_ie(nlev,np,np,nelemd)
   real (kind=real_kind) :: JacU_ie(nlev,np,np,nelemd), JacU2_ie(nelemd,nlev-2,np,np)
   !real (kind=real_kind) :: dp3d_ie(nelemd,np,np,nlevp)
-  real (kind=real_kind) :: w_n0_ie(nelemd,np,np,nlevp)    
-  real (kind=real_kind) :: phi_n0_ie(nelemd,np,np,nlevp) 
+  real (kind=real_kind) :: w_n0_ie(np,np,nlevp,nelemd)    
+  real (kind=real_kind) :: phi_n0_ie(np,np,nlevp,nelemd) 
   real (kind=real_kind) :: pnh_ie(np,np,nlev,nelemd)     ! nh (nonydro) pressure
-  real (kind=real_kind) :: dp3d_i_ie(nelemd,np,np,nlevp)
+  real (kind=real_kind) :: dp3d_i_ie(np,np,nlevp,nelemd)
   real (kind=real_kind) :: dpnh_dp_i_ie(np,np,nlevp,nelemd)
-  real (kind=real_kind) :: exner_ie(nelemd,np,np,nlev)     ! exner nh pressure    
+  real (kind=real_kind) :: exner_ie(np,np,nlev,nelemd)     ! exner nh pressure    
   real (kind=real_kind) :: Ipiv_ie(nelemd,nlev,np,np)
-  real (kind=real_kind) :: Fn_ie(nelemd,np,np,nlev),x_ie(nlev,np,np,nelemd)
+  real (kind=real_kind) :: Fn_ie(np,np,nlev,nelemd),x_ie(nlev,np,np,nelemd)
   real (kind=real_kind) :: itererr_ie(nelemd)
   real (kind=real_kind) :: norminfr0_ie(nelemd,np,np),norminfJ0_ie(nelemd,np,np)
   real (kind=real_kind) :: itererrtemp_ie(nelemd,np,np)
@@ -2266,8 +2278,8 @@ call set_theta_ref_openacc(hvcoord,elem,dp_ref,theta_ref,1,nt,nets,nete)
 
 #ifdef OPENACC_HOMME
 !$acc update device(hvcoord)
-!$acc enter data create(pnh_ie,exner_ie,dpnh_dp_i_ie,JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie,itererr_ie)
-!$acc enter data create(JacU,JacL,JacD,JacX)
+!$acc enter data create(pnh_ie,exner_ie,dpnh_dp_i_ie,dp3d_i_ie,Fn_ie,itererr_ie)
+!$acc enter data create(JacU_ie,JacL_ie,JacD_ie)
 !$acc enter data create(w_n0_ie,phi_n0_ie,itererrtemp_ie,x_ie,maxnorminfJ0r0_ie)
 #endif   
 
@@ -2281,20 +2293,42 @@ call get_pnh_and_exner_openacc(hvcoord,elem,pnh_ie,exner_ie,dpnh_dp_i_ie,np1,net
 #ifdef OPENACC_HOMME
 !$acc parallel loop gang present(elem,dp3d_i_ie,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
 #endif  
-  do ie=nets,nete 
-    !itercount=0 
-    w_n0_ie(ie,:,:,:) = elem(ie)%state%w_i(:,:,:,np1)
-    phi_n0_ie(ie,:,:,:) = elem(ie)%state%phinh_i(:,:,:,np1)
-    dp3d_i_ie(ie,:,:,1) = elem(ie)%state%dp3d(:,:,1,np1)
-    dp3d_i_ie(ie,:,:,nlevp) = elem(ie)%state%dp3d(:,:,nlev,np1)
+  do ie=nets,nete
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+    do i=1,np
+      do j=1,np    
+        !itercount=0 
+        w_n0_ie(i,j,:,ie) = elem(ie)%state%w_i(i,j,:,np1)
+        phi_n0_ie(i,j,:,ie) = elem(ie)%state%phinh_i(i,j,:,np1)
+        dp3d_i_ie(i,j,1,ie) = elem(ie)%state%dp3d(i,j,1,np1)
+        dp3d_i_ie(i,j,nlevp,ie) = elem(ie)%state%dp3d(i,j,nlev,np1)
+      enddo
+    enddo   
     do k=2,nlev
-       dp3d_i_ie(ie,:,:,k)=(elem(ie)%state%dp3d(:,:,k,np1)+elem(ie)%state%dp3d(:,:,k-1,np1))/2
-    end do
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+      do i=1,np
+        do j=1,np     
+            dp3d_i_ie(i,j,k,ie)=(elem(ie)%state%dp3d(i,j,k,np1)+elem(ie)%state%dp3d(i,j,k-1,np1))/2
+        enddo
+      enddo
+    enddo
 
-   ! we first compute the initial Jacobian J0 and residual r0 and their infinity norms
-     Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
-       - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(:,:,1:nlev,ie))
-
+    ! we first compute the initial Jacobian J0 and residual r0 and their infinity norms
+    do k=1,nlev
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+      do i=1,np
+        do j=1,np 
+          Fn_ie(i,j,k,ie) = elem(ie)%state%phinh_i(i,j,k,np1)-phi_n0_ie(i,j,k,ie) &
+            - dt2*g*w_n0_ie(i,j,k,ie) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(i,j,k,ie))
+        enddo
+      enddo
+    enddo
   end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
@@ -2318,17 +2352,17 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
      do j=1,np
        itererrtemp_ie(ie,i,j)=0 
        do k=1,nlev
-        norminfr0_ie(ie,i,j)=max(norminfr0_ie(ie,i,j),abs(Fn_ie(ie,i,j,k)) *dp3d_i_ie(ie,i,j,k))
+        norminfr0_ie(ie,i,j)=max(norminfr0_ie(ie,i,j),abs(Fn_ie(i,j,k,ie)) *dp3d_i_ie(i,j,k,ie))
         if (k.eq.1) then
-          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(k,i,j,ie))+dp3d_i_ie(ie,i,j,k+1))*abs(JacU_ie(k,i,j,ie)))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(i,j,k,ie)*abs(JacD_ie(k,i,j,ie))+dp3d_i_ie(i,j,k+1,ie))*abs(JacU_ie(k,i,j,ie)))
         elseif (k.eq.nlev) then
-          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(k+1,i,j,ie))+abs(JacD_ie(k,i,j,ie))*elem(ie)%state%dp3d(i,j,k,np1)))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(i,j,k-1,ie)*abs(JacL_ie(k+1,i,j,ie))+abs(JacD_ie(k,i,j,ie))*elem(ie)%state%dp3d(i,j,k,np1)))
           ! JacL_ie(k+1,... : because JacL_ie uses "nlev" rather than "nlev-1" becasue of the cusparse call
         else
-          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(ie,i,j,k-1)*abs(JacL_ie(k+1,i,j,ie))+dp3d_i_ie(ie,i,j,k)*abs(JacD_ie(k,i,j,ie))+ &
-            dp3d_i_ie(ie,i,j,k+1)*abs(JacU_ie(k,i,j,ie))))
+          norminfJ0_ie(ie,i,j) = max(norminfJ0_ie(ie,i,j),(dp3d_i_ie(i,j,k-1,ie)*abs(JacL_ie(k+1,i,j,ie))+dp3d_i_ie(i,j,k,ie)*abs(JacD_ie(k,i,j,ie))+ &
+            dp3d_i_ie(i,j,k+1,ie)*abs(JacU_ie(k,i,j,ie))))
         end if
-        itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(ie,i,j,k)**2.d0 *dp3d_i_ie(ie,i,j,k)
+        itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(i,j,k,ie)**2.d0 *dp3d_i_ie(i,j,k,ie)
       end do
       itererrtemp_ie(ie,i,j)=sqrt(itererrtemp_ie(ie,i,j))
     end do
@@ -2340,9 +2374,7 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
   end do ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
-!!$acc update self(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,Fn_ie)
 !$acc update self(itererr_ie)
-!!$acc update self(w_n0_ie,phi_n0_ie,itererrtemp_ie)
 !$acc update self(maxnorminfJ0r0_ie) 
 #endif   
   
@@ -2369,7 +2401,7 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
       do ie=nets,nete
         do i=1,np
           do j=1,np
-            x_ie(1:nlev,i,j,ie) = -Fn_ie(ie,i,j,1:nlev)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
+            x_ie(1:nlev,i,j,ie) = -Fn_ie(i,j,1:nlev,ie)  !+Fn(i,j,nlev+1:2*nlev,1)/(g*dt2))
           end do
         end do
       end do ! end do for the ie=nets,nete loop
@@ -2390,10 +2422,12 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
 !$acc parallel loop gang vector collapse(3) present(elem,x_ie)
 #endif        
       do ie=nets,nete
-        do i=1,np
-          do j=1,np
-            ! update approximate solution of phi
-            elem(ie)%state%phinh_i(i,j,1:nlev,np1) = elem(ie)%state%phinh_i(i,j,1:nlev,np1) + x_ie(1:nlev,i,j,ie)
+        do k=1,nlev
+          do i=1,np
+            do j=1,np
+                ! update approximate solution of phi
+                elem(ie)%state%phinh_i(i,j,k,np1) = elem(ie)%state%phinh_i(i,j,k,np1) + x_ie(k,i,j,ie)
+            enddo
           end do
         end do
       end do ! end do for the ie=nets,nete loop
@@ -2407,13 +2441,22 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
 !$acc parallel loop gang present(elem,w_n0_ie,phi_n0_ie,Fn_ie,dpnh_dp_i_ie)
 #endif 
     do ie=nets,nete
-      ! update approximate solution of w
-      elem(ie)%state%w_i(:,:,1:nlev,np1) = w_n0_ie(ie,:,:,1:nlev) - g*dt2 * &
-        (1.0-dpnh_dp_i_ie(:,:,1:nlev,ie))
-      ! update right-hand side of phi
-      Fn_ie(ie,:,:,1:nlev) = elem(ie)%state%phinh_i(:,:,1:nlev,np1)-phi_n0_ie(ie,:,:,1:nlev) &
-        - dt2*g*w_n0_ie(ie,:,:,1:nlev) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(:,:,1:nlev,ie))
-    end do ! end do for the ie=nets,nete loop
+      do k=1,nlev
+#ifdef OPENACC_HOMME
+!$acc loop vector collapse(2)
+#endif          
+         do i=1,np
+           do j=1,np     
+                ! update approximate solution of w
+                elem(ie)%state%w_i(i,j,k,np1) = w_n0_ie(i,j,k,ie) - g*dt2 * &
+                    (1.0-dpnh_dp_i_ie(i,j,k,ie))
+                ! update right-hand side of phi
+                Fn_ie(i,j,k,ie) = elem(ie)%state%phinh_i(i,j,k,np1)-phi_n0_ie(i,j,k,ie) &
+                    - dt2*g*w_n0_ie(i,j,k,ie) + (dt2*g)**2 * (1.0-dpnh_dp_i_ie(i,j,k,ie))
+          enddo
+        enddo
+      enddo
+    enddo ! end do for the ie=nets,nete loop
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
 #endif    
@@ -2424,13 +2467,17 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
     do ie=nets,nete
       ! compute relative errors
       itererrtemp_ie(ie,:,:)=0.d0
-      do i=1,np
-      do j=1,np
-        do k=1,nlev
-          itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(ie,i,j,k)**2.d0 *dp3d_i_ie(ie,i,j,k)
+      do k=1,nlev
+        do i=1,np
+          do j=1,np        
+            itererrtemp_ie(ie,i,j)=itererrtemp_ie(ie,i,j)+Fn_ie(i,j,k,ie)**2.d0 *dp3d_i_ie(i,j,k,ie)
+          end do
         end do
-        itererrtemp_ie(ie,i,j)=sqrt(itererrtemp_ie(ie,i,j))
       end do
+      do i=1,np
+        do j=1,np
+          itererrtemp_ie(ie,i,j)=sqrt(itererrtemp_ie(ie,i,j))
+        end do
       end do
       itererr_ie(ie)=maxval(itererrtemp_ie(ie,:,:))/maxnorminfJ0r0_ie(ie)      
     end do ! end do for the ie=nets,nete loop
@@ -2459,7 +2506,7 @@ call get_dirk_jacobian_openacc(JacL_ie,JacD_ie,JacU_ie,dt2,elem,np1,pnh_ie,nets,
 #ifdef OPENACC_HOMME
 !$acc exit data delete(pnh_ie,exner_ie,dpnh_dp_i_ie,w_n0_ie,phi_n0_ie,x_ie)
 !$acc exit data delete(JacU_ie,JacL_ie,JacD_ie,dp3d_i_ie,fn_ie,itererr_ie,maxnorminfJ0r0_ie)
-!$acc exit data delete(JacU,JacL,JacD,JacX)
+!$acc exit data delete(norminfJ0_ie,norminfr0_ie)
 #endif 
   end subroutine compute_stage_value_dirk
 
