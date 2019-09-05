@@ -538,12 +538,12 @@ endif
     iw = nlyr_tot*desc%putmapP(west)
    
 !dir$ ivdep
-    do k=1,vlyr
-       iptr = np*(kptr+k-1)
 #ifdef OPENACC_HOMME
-  !$acc loop vector 
+  !$acc loop vector collapse(2)
 #endif
+    do k=1,vlyr
        do i=1,np
+          iptr = np*(kptr+k-1)
           edge%buf(iptr+is+i)   = v(i  ,1 ,k) ! South
           edge%buf(iptr+in+i)   = v(i  ,np,k) ! North
           edge%buf(iptr+iw+i)   = v(1  ,i ,k) ! West
@@ -555,12 +555,12 @@ endif
     !  But since it is so a rare event not real need to spend time optimizing
     if(desc%reverse(south)) then
 !dir$ ivdep
-       do k=1,vlyr
-          iptr = np*(kptr+k-1)+is
 #ifdef OPENACC_HOMME
-  !$acc loop vector 
-#endif          
+  !$acc loop vector collapse(2)
+#endif
+       do k=1,vlyr         
           do i=1,np
+             iptr = np*(kptr+k-1)+is 
              edge%buf(iptr+np-i+1)=v(i,1,k)
           enddo
        enddo
@@ -568,12 +568,12 @@ endif
 
     if(desc%reverse(east)) then
 !dir$ ivdep
-       do k=1,vlyr
-          iptr=np*(kptr+k-1)+ie
 #ifdef OPENACC_HOMME
-  !$acc loop vector 
-#endif          
+  !$acc loop vector collapse(2)
+#endif
+       do k=1,vlyr         
           do i=1,np
+             iptr=np*(kptr+k-1)+ie
              edge%buf(iptr+np-i+1)=v(np,i,k)
           enddo
        enddo
@@ -581,12 +581,12 @@ endif
 
     if(desc%reverse(north)) then
 !dir$ ivdep
-       do k=1,vlyr
-          iptr=np*(kptr+k-1)+in
 #ifdef OPENACC_HOMME
-  !$acc loop vector 
-#endif          
+  !$acc loop vector collapse(2)
+#endif
+       do k=1,vlyr         
           do i=1,np
+             iptr=np*(kptr+k-1)+in
              edge%buf(iptr+np-i+1)=v(i,np,k)
           enddo
        enddo
@@ -594,12 +594,12 @@ endif
 
     if(desc%reverse(west)) then
 !dir$ ivdep
-       do k=1,vlyr
-          iptr=np*(kptr+k-1)+iw
 #ifdef OPENACC_HOMME
-  !$acc loop vector 
-#endif          
+  !$acc loop vector collapse(2)
+#endif
+       do k=1,vlyr         
           do i=1,np
+             iptr=np*(kptr+k-1)+iw
              edge%buf(iptr+np-i+1)=v(1,i,k)
           enddo
        enddo
@@ -1184,12 +1184,12 @@ endif
     iw = nlyr_tot*desc%getmapP(west)
 
 !dir$ ivdep
-    do k=1,vlyr
-       iptr=np*(kptr+k-1)
 #ifdef OPENACC_HOMME
-  !$acc loop vector 
-#endif       
+  !$acc loop vector collapse(2) 
+#endif
+    do k=1,vlyr
        do i=1,np
+          iptr=np*(kptr+k-1)
           v(i  ,1  ,k) = v(i  ,1  ,k)+edge%receive(iptr+is+i) ! South
           v(i  ,np ,k) = v(i  ,np ,k)+edge%receive(iptr+in+i) ! North
           v(1  ,i  ,k) = v(1  ,i  ,k)+edge%receive(iptr+iw+i) ! West

@@ -117,12 +117,14 @@ logical var_coef1
    enddo
 #ifdef OPENACC_HOMME
 !$acc end parallel loop
+!$acc update self(edgeq)
 #endif
    call t_startf('biwksc_bexchV')
    call bndry_exchangeV(hybrid,edgeq)
    call t_stopf('biwksc_bexchV')
 
 #ifdef OPENACC_HOMME
+!$acc update device(edgeq)
 !$acc parallel loop gang collapse(2) private(lap_p) present(qtens,elem,edgeq,deriv)
 #endif   
    do ie=nets,nete
